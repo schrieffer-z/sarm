@@ -1,4 +1,3 @@
-# SARM
 <div align="center">
   <h1>SARM: Promoting Interpretability via Sparse Autoencoder</h1>
 </p>
