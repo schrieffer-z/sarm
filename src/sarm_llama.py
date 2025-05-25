@@ -314,7 +314,7 @@ class MyLlamaModel(LlamaPreTrainedModel):
 #==========================================================================================================================================================================
 
 
-class LlamaSAE4RM(LlamaPreTrainedModel):
+class LlamaSARM(LlamaPreTrainedModel):
     def __init__(
             # Shuyi (sae init 传参)
             self, config, sae_hidden_state_source_layer, sae_latent_size, sae_k, sae4rm_use_topk=False

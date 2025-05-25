@@ -27,8 +27,8 @@ from transformers.utils import PaddingStrategy
 from transformers.optimization import get_scheduler
 
 # local
-from sae4rm_llama import LlamaBaseline, LlamaSAE4RM
-from sae4rm_gemma2 import Gemma2Baseline, Gemma2SAE4RM
+from sarm_llama import LlamaBaseline, LlamaSARM
+from sarm_gemma2 import Gemma2Baseline, Gemma2SARM
 
 # Define and parse arguments.
 @dataclass
@@ -41,16 +41,16 @@ class ScriptArguments:
         default=None,
         metadata={"help": "the sae path to be merged in .safetensors(name of sae_path(e.g. _Latent16384_Layer8_K144) will be used to parse LatentSize and HiddenStateSourceLayer)."}
     )
-    sae4rm_use_topk: Optional[bool] = field(
+    sarm_use_topk: Optional[bool] = field(
         default=False,
         metadata={"help": "whether or not to use top k in rm"}
     )
-    sae4rm_base_model: Optional[str] = field(
+    sarm_base_model: Optional[str] = field(
         default=None,
         metadata={"help": "RM Backbone type(from which arch's hidden states sae is trained). "}
     )
     # Baseline 
-    use_baseline: Optional[bool] = field(
+    sarm_use_baseline: Optional[bool] = field(
         default=False,
         metadata={"help": "whether or not to use baseine"}
     )
@@ -144,14 +144,11 @@ tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, use_fast = False)
 
 # Adjusted according to the base model
 # Need to do this for the models that don't have an official pad token.
-#tokenizer.pad_token = tokenizer.eos_token
-#tokenizer.pad_token_id = tokenizer.eos_token_id
 if tokenizer.pad_token==None:
     tokenizer.add_special_tokens({'pad_token': '[PAD]'})
 print(tokenizer.padding_side)
 tokenizer.truncation_side = "left"
 tokenizer.model_max_length = script_args.max_length
-# tokenizer.padding_side = "right"
 
 
 
@@ -275,7 +272,7 @@ def merge_safetensor():
     weights1.update(x)
     
 
-    target_path = script_args.model_name+"-SAE4RM"
+    target_path = script_args.model_name+"-SARM"
     # 修改model.safetensors.index.json的映射
     if weight_map is not None:
         for param_name in x.keys():
@@ -296,13 +293,13 @@ def merge_safetensor():
         
 
 
-if script_args.use_baseline:
+if script_args.sarm_use_baseline:
     sae_kwargs = parse_sae_params(script_args.sae_path)
-    if script_args.sae4rm_base_model=='gemma2':
+    if script_args.sarm_base_model=='gemma2':
         model = Gemma2Baseline.from_pretrained(
             script_args.model_name, num_labels=1, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2", **sae_kwargs
         )
-    elif script_args.sae4rm_base_model=='llama':
+    elif script_args.sarm_base_model=='llama':
         model = LlamaBaseline.from_pretrained(
             script_args.model_name, num_labels=1, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2", **sae_kwargs
         )
@@ -311,13 +308,13 @@ if script_args.use_baseline:
 elif script_args.sae_path is not None:
     sae_kwargs = parse_sae_params(script_args.sae_path)
     merge_safetensor()
-    if script_args.sae4rm_base_model=='gemma2':
-        model = Gemma2SAE4RM.from_pretrained(
-            script_args.model_name+"-SAE4RM", num_labels=1, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2", **sae_kwargs
+    if script_args.sarm_base_model=='gemma2':
+        model = Gemma2SARM.from_pretrained(
+            script_args.model_name+"-SARM", num_labels=1, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2", **sae_kwargs
         )
-    elif script_args.sae4rm_base_model=='llama':
-        model = LlamaSAE4RM.from_pretrained(
-            script_args.model_name+"-SAE4RM", num_labels=1, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2", **sae_kwargs
+    elif script_args.sarm_base_model=='llama':
+        model = LlamaSARM.from_pretrained(
+            script_args.model_name+"-SARM", num_labels=1, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2", **sae_kwargs
         )
     else:
         raise ValueError(f"Invalid base model type: {script_args.sae4rm_base_model}")
