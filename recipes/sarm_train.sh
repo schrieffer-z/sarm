@@ -8,7 +8,7 @@ config_name=deepspeed_zero3_4gpu.yaml
 # 1:2e-6
 learning_rate=8e-6
 per_device_train_batch_size=4
-num_train_epochs=5
+num_train_epochs=3
 
 sae4rm_base_model=llama
 model_name=/mnt/finder/lisihang/models/meta/Llama-3.2-3B-Instruct
