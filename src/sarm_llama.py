@@ -318,14 +318,15 @@ class MyLlamaModel(LlamaPreTrainedModel):
 class LlamaSARM(LlamaPreTrainedModel):
     def __init__(
             # Shuyi (sae init 传参)
-            self, config, sae_hidden_state_source_layer, sae_latent_size, sae_k, sae4rm_use_topk=False
+            self, config, sae_hidden_state_source_layer, sae_latent_size, sae_k, sarm_use_topk=False, sarm_aggregate_latents=False
     ):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.model = MyLlamaModel(config, hidden_state_source_layer=sae_hidden_state_source_layer)
         
         # Shuyi (SAE init)
-        self.sae4rm_use_topk = sae4rm_use_topk
+        self.sarm_use_topk = sarm_use_topk
+        self.sarm_aggregate_latents = sarm_aggregate_latents
         self.score = nn.Linear(sae_latent_size, self.num_labels, bias=False)
         self.sae = TopkSAE(hidden_size=self.model.config.hidden_size, latent_size=sae_latent_size, k=sae_k)
 
@@ -347,6 +348,8 @@ class LlamaSARM(LlamaPreTrainedModel):
         self,
         input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
+        # Shuyi (aggregate latent)
+        assistant_masks: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[Union[Cache, List[torch.FloatTensor]]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
@@ -381,7 +384,7 @@ class LlamaSARM(LlamaPreTrainedModel):
         # Shuyi
         normalized_hidden_states, _, _ = pre_process(hidden_states)
         sae_features = self.sae.pre_acts(normalized_hidden_states)
-        if self.sae4rm_use_topk:
+        if self.sarm_use_topk:
             sae_features = self.sae.get_latents(sae_features)
 
 
@@ -404,8 +407,19 @@ class LlamaSARM(LlamaPreTrainedModel):
                 sequence_lengths = sequence_lengths.to(logits.device)
             else:
                 sequence_lengths = -1
+        # Shuyi (查看last_token是否为<|eot_id|>)
+        assert ((input_ids[torch.arange(batch_size, device=logits.device), sequence_lengths]!=torch.ones(batch_size, device=logits.device)*128009).sum() == 0).item()
+        
 
         pooled_logits = logits[torch.arange(batch_size, device=logits.device), sequence_lengths]
+
+        if self.sarm_aggregate_latents:
+            table = (assistant_masks * torch.arange(assistant_masks.shape[1], device=assistant_masks.device)).nonzero()
+            aggregated_latents = torch.zeros([sae_features.shape[0], sae_features.shape[-1]], device=sae_features.device, dtype=sae_features.dtype)
+            for x,y in table:
+                aggregated_latents[x,:] += sae_features[x,y,:]
+
+            pooled_logits = self.score(aggregated_latents)
 
         loss = None
         if labels is not None:

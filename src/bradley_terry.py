@@ -29,6 +29,7 @@ from transformers.optimization import get_scheduler
 # local
 from sarm_llama import LlamaBaseline, LlamaSARM
 from sarm_gemma2 import Gemma2Baseline, Gemma2SARM
+from sae import *
 
 # Define and parse arguments.
 @dataclass
@@ -44,6 +45,10 @@ class ScriptArguments:
     sarm_use_topk: Optional[bool] = field(
         default=False,
         metadata={"help": "whether or not to use top k in rm"}
+    )
+    sarm_aggregate_latents: Optional[bool] = field(
+        default=False,
+        metadata={"help": "whether or not to aggregate latents"}
     )
     sarm_base_model: Optional[str] = field(
         default=None,
@@ -172,24 +177,23 @@ def build_dataset(tokenizer, train_path, eval_path):
         tokenized_neg = tokenizer(sample['negative'], truncation=True)
         sample["input_ids_j"] = tokenized_pos["input_ids"]
         sample["attention_mask_j"] = tokenized_pos["attention_mask"]
+        sample["assistant_masks_j"] = get_last_assistant_masks(tokenized_pos["input_ids"])
         sample["input_ids_k"] = tokenized_neg["input_ids"]
         sample["attention_mask_k"] = tokenized_neg["attention_mask"]
+        sample["assistant_masks_k"] = get_last_assistant_masks(tokenized_neg["input_ids"])
         return sample
 
     ds = load_dataset('parquet', data_files=train_path)['train'].shuffle(seed=42)
-    ds = ds.map(tokenize, num_proc=16)
+    ds = ds.map(tokenize, num_proc=8)
 
     eval_dataset = None
 
     train_dataset = ds
-    #eval_dataset = load_dataset(eval_path, split="train").shuffle(seed=42).select(range(500))
     eval_dataset = ds.select(range(500))
     return train_dataset, eval_dataset
 
 train_dataset, eval_dataset = build_dataset(tokenizer, train_path, eval_path)
 print("Training set: ", len(train_dataset), " Eval set: ", len(eval_dataset))
-
-# Define the trainer
 
 
 # Define the trainer
@@ -235,11 +239,12 @@ def parse_sae_params(filename):
         "sae_latent_size": int(match.group(1)),
         "sae_hidden_state_source_layer": int(match.group(2)),
         "sae_k": int(match.group(3)),
-        'sae4rm_use_topk': script_args.sae4rm_use_topk
+        'sarm_use_topk': script_args.sarm_use_topk,
+        'sarm_aggregate_latents': script_args.sarm_aggregate_latents
     }
-    if script_args.use_baseline: 
+    if script_args.sarm_use_baseline: 
         ret.pop('sae_k')
-        ret.pop('sae4rm_use_topk')
+        ret.pop('sarm_use_topk')
     return ret
 
 
@@ -344,6 +349,7 @@ class RewardDataCollatorWithPadding:
 
     def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, Any]:
         merged_features = []
+        merged_features_for_assistant_masks = []
 
         for feature in features:
             merged_features.append(
@@ -358,6 +364,18 @@ class RewardDataCollatorWithPadding:
                     "attention_mask": feature["attention_mask_k"],
                 }
             )
+            merged_features_for_assistant_masks.append(
+                {
+                    "input_ids": feature["input_ids_j"],
+                    "attention_mask": feature["assistant_masks_j"],
+                }
+            )
+            merged_features_for_assistant_masks.append(
+                {
+                    "input_ids": feature["input_ids_k"],
+                    "attention_mask": feature["assistant_masks_k"],
+                }
+            )
         batch = self.tokenizer.pad(
             merged_features,
             padding=self.padding,
@@ -365,9 +383,20 @@ class RewardDataCollatorWithPadding:
             pad_to_multiple_of=self.pad_to_multiple_of,
             return_tensors=self.return_tensors,
         )
+        batch_for_assistant_masks = self.tokenizer.pad(
+            merged_features_for_assistant_masks,
+            padding=self.padding,
+            max_length=self.max_length,
+            pad_to_multiple_of=self.pad_to_multiple_of,
+            return_tensors=self.return_tensors,
+        )
+        assert batch["input_ids"].shape == batch["attention_mask"].shape
+        assert batch["input_ids"].shape == batch_for_assistant_masks["attention_mask"].shape
+
         batch = {
             "input_ids": batch["input_ids"],
             "attention_mask": batch["attention_mask"],
+            "assistant_masks": batch_for_assistant_masks["attention_mask"],
             "return_loss": True,
         }
         return batch
@@ -387,7 +416,7 @@ def compute_metrics(eval_pred):
 class RewardTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False):
         rewards = model(
-            input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"]
+            input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"], assistant_masks=inputs["assistant_masks"]
         )[0]
         bsz = rewards.size(0)
         jidx = torch.arange(0, bsz, 2)

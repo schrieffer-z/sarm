@@ -1,6 +1,58 @@
 import torch
 from torch import nn
 
+LLAMA3TEMPLATE = (
+    "{{- bos_token }}"
+    "{%- if not date_string is defined %}"
+        "{%- set date_string = \"26 Jul 2024\" %}"
+    "{%- endif %}"
+
+    "{{- '<|start_header_id|>system<|end_header_id|>\n\n' }}"
+    "{{- 'Cutting Knowledge Date: December 2023\n' }}"
+    "{{- 'Today Date: ' + date_string + '\n\n' }}"
+    "{{- system_message }}"
+    "{{- '<|eot_id|>' }}"
+
+    "{% for message in messages %}"
+        "{% if (message['role'] != 'assistant') %}"
+            "{{ '<|start_header_id|>' + message['role'] + '<|end_header_id|>\n\n' + message['content'] | trim + '<|eot_id|>' }}"
+        "{% elif (message['role'] == 'assistant')%}"
+            "{% generation %}"
+            "{{ '<|start_header_id|>' + message['role'] + '<|end_header_id|>\n\n' }}"
+            "{{ message['content'] | trim + '<|eot_id|>'}}"
+            "{% endgeneration %}"
+        "{% endif %}"
+    "{% endfor %}"
+)
+
+def get_last_assistant_masks(input_ids):
+    # i=0
+    # while i<len(assistant_masks):
+    #     if i>0 and assistant_masks[i]==1 and assistant_masks[i-1]==0:
+    #         assert input_ids[i:i+4] == [128006, 78191, 128007, 271]
+    #         st_pos = i
+    #         while i<len(assistant_masks) and assistant_masks[i]==1:
+    #             i += 1
+    #         assistant_masks[st_pos:st_pos+4]=[0,0,0,0]
+    #     i += 1
+    
+    i=len(input_ids)-4
+    while i >= 0:
+        if input_ids[i:i+4] == [128006, 78191, 128007, 271]:
+            pos = i + 4
+            break
+        i -= 1
+    
+    assistant_masks = []
+    for i in range(len(input_ids)):
+        if i < pos:
+            assistant_masks.append(0)
+        else:
+            assistant_masks.append(1)
+
+    assert input_ids[-1]==128009
+    return assistant_masks
+
 
 def pre_process(hidden_stats: torch.Tensor, eps: float = 1e-6) -> tuple:
     '''
