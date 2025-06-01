@@ -42,6 +42,17 @@ class ScriptArguments:
         default=None,
         metadata={"help": "the sae path to be merged in .safetensors(name of sae_path(e.g. _Latent16384_Layer8_K144) will be used to parse LatentSize and HiddenStateSourceLayer)."}
     )
+    sarm_train_mode: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": (
+                "0: { lm.loss=None, sae.loss=None }"
+                "1: { lm.loss=bt, sae.loss=None }"
+                "2: { lm.loss=reconstruct + bt & sae.loss=reconstruct + bt }"
+                "3: { lm.loss=bt & sae.loss=reconstruct + bt }"
+            )
+        }
+    )
     sarm_use_topk: Optional[bool] = field(
         default=False,
         metadata={"help": "whether or not to use top k in rm"}
@@ -240,7 +251,8 @@ def parse_sae_params(filename):
         "sae_hidden_state_source_layer": int(match.group(2)),
         "sae_k": int(match.group(3)),
         'sarm_use_topk': script_args.sarm_use_topk,
-        'sarm_aggregate_latents': script_args.sarm_aggregate_latents
+        'sarm_aggregate_latents': script_args.sarm_aggregate_latents,
+        'sarm_train_mode': script_args.sarm_train_mode
     }
     if script_args.sarm_use_baseline: 
         ret.pop('sae_k')
@@ -309,7 +321,7 @@ if script_args.sarm_use_baseline:
             script_args.model_name, num_labels=1, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2", **sae_kwargs
         )
     else:
-        raise ValueError(f"Invalid base model type: {script_args.sae4rm_base_model}")
+        raise ValueError(f"Invalid base model type: {script_args.sarm_base_model}")
 elif script_args.sae_path is not None:
     sae_kwargs = parse_sae_params(script_args.sae_path)
     merge_safetensor()
@@ -322,7 +334,7 @@ elif script_args.sae_path is not None:
             script_args.model_name+"-SARM", num_labels=1, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2", **sae_kwargs
         )
     else:
-        raise ValueError(f"Invalid base model type: {script_args.sae4rm_base_model}")
+        raise ValueError(f"Invalid base model type: {script_args.sarm_base_model}")
 else:
     model = AutoModelForSequenceClassification.from_pretrained(
         script_args.model_name, num_labels=1, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2",
@@ -415,9 +427,10 @@ def compute_metrics(eval_pred):
 
 class RewardTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False):
-        rewards = model(
+        output = model(
             input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"], assistant_masks=inputs["assistant_masks"]
-        )[0]
+        )
+        rewards = output['logits']
         bsz = rewards.size(0)
         jidx = torch.arange(0, bsz, 2)
         kidx = jidx + 1

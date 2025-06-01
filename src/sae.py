@@ -26,16 +26,6 @@ LLAMA3TEMPLATE = (
 )
 
 def get_last_assistant_masks(input_ids):
-    # i=0
-    # while i<len(assistant_masks):
-    #     if i>0 and assistant_masks[i]==1 and assistant_masks[i-1]==0:
-    #         assert input_ids[i:i+4] == [128006, 78191, 128007, 271]
-    #         st_pos = i
-    #         while i<len(assistant_masks) and assistant_masks[i]==1:
-    #             i += 1
-    #         assistant_masks[st_pos:st_pos+4]=[0,0,0,0]
-    #     i += 1
-    
     i=len(input_ids)-4
     while i >= 0:
         if input_ids[i:i+4] == [128006, 78191, 128007, 271]:
@@ -53,6 +43,8 @@ def get_last_assistant_masks(input_ids):
     assert input_ids[-1]==128009
     return assistant_masks
 
+def Normalized_MSE_loss(x: torch.Tensor, x_hat: torch.Tensor) -> torch.Tensor:
+    return (((x_hat - x) ** 2).mean(dim=-1) / (x**2).mean(dim=-1)).mean()
 
 def pre_process(hidden_stats: torch.Tensor, eps: float = 1e-6) -> tuple:
     '''
@@ -86,7 +78,7 @@ class TopkSAE(nn.Module):
         self.pre_bias = nn.Parameter(torch.zeros(hidden_size))
         self.latent_bias = nn.Parameter(torch.zeros(latent_size))
         self.encoder = nn.Linear(hidden_size, latent_size, bias=False)
-        self._decoder = nn.Linear(latent_size, hidden_size, bias=False)
+        self.decoder = nn.Linear(latent_size, hidden_size, bias=False)
 
         self.k = k
         self.latent_size = latent_size
@@ -111,7 +103,7 @@ class TopkSAE(nn.Module):
         return latents
 
     def decode(self, latents: torch.Tensor) -> torch.Tensor:
-        return self._decoder(latents) + self.pre_bias
+        return self.decoder(latents) + self.pre_bias
     
     def forward(self, x: torch.Tensor) -> tuple:
         '''

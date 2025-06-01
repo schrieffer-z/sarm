@@ -18,7 +18,7 @@ from transformers.models.llama.modeling_llama import (
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 
 # Local
-from sae import TopkSAE, pre_process
+from sae import TopkSAE, pre_process, Normalized_MSE_loss
 
 
 logger = logging.get_logger(__name__)
@@ -318,7 +318,10 @@ class MyLlamaModel(LlamaPreTrainedModel):
 class LlamaSARM(LlamaPreTrainedModel):
     def __init__(
             # Shuyi (sae init 传参)
-            self, config, sae_hidden_state_source_layer, sae_latent_size, sae_k, sarm_use_topk=False, sarm_aggregate_latents=False
+            self, config, sae_hidden_state_source_layer, sae_latent_size, sae_k, 
+            sarm_use_topk=False, 
+            sarm_aggregate_latents=False,
+            sarm_train_mode=1
     ):
         super().__init__(config)
         self.num_labels = config.num_labels
@@ -327,11 +330,14 @@ class LlamaSARM(LlamaPreTrainedModel):
         # Shuyi (SAE init)
         self.sarm_use_topk = sarm_use_topk
         self.sarm_aggregate_latents = sarm_aggregate_latents
+        self.sarm_train_mode = sarm_train_mode
+
         self.score = nn.Linear(sae_latent_size, self.num_labels, bias=False)
         self.sae = TopkSAE(hidden_size=self.model.config.hidden_size, latent_size=sae_latent_size, k=sae_k)
 
-        for p in self.sae.parameters():
-            p.requires_grad_(False)
+        if self.sarm_train_mode==1:
+            for p in self.sae.parameters():
+                p.requires_grad_(False)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -382,8 +388,8 @@ class LlamaSARM(LlamaPreTrainedModel):
 
 
         # Shuyi
-        normalized_hidden_states, _, _ = pre_process(hidden_states)
-        sae_features = self.sae.pre_acts(normalized_hidden_states)
+        h, _, _ = pre_process(hidden_states)
+        sae_features = self.sae.pre_acts(h)
         if self.sarm_use_topk:
             sae_features = self.sae.get_latents(sae_features)
 
@@ -414,16 +420,24 @@ class LlamaSARM(LlamaPreTrainedModel):
         pooled_logits = logits[torch.arange(batch_size, device=logits.device), sequence_lengths]
 
         if self.sarm_aggregate_latents:
-            table = (assistant_masks * torch.arange(assistant_masks.shape[1], device=assistant_masks.device)).nonzero()
-            aggregated_latents = torch.zeros([sae_features.shape[0], sae_features.shape[-1]], device=sae_features.device, dtype=sae_features.dtype)
-            for x,y in table:
-                aggregated_latents[x,:] += sae_features[x,y,:]
-
-            pooled_logits = self.score(aggregated_latents)
+            assistant_masks = assistant_masks.to(torch.bfloat16).view(assistant_masks.shape[0], 1, assistant_masks.shape[-1])
+            sae_features = torch.matmul(assistant_masks, sae_features).squeeze(1)
+            pooled_logits = self.score(sae_features)
 
         loss = None
         if labels is not None:
             loss = self.loss_function(logits=logits, labels=labels, pooled_logits=pooled_logits, config=self.config)
+        # Shuyi (联合训练)
+        if self.sarm_train_mode==2:
+            assert self.sarm_use_topk
+            h_hat = self.sae.decode(sae_features)
+            loss = Normalized_MSE_loss(h, h_hat)
+        elif self.sarm_train_mode==3:
+            assert self.sarm_use_topk
+            h_d = h.detach()
+            _, h_hat = self.sae(h_d)
+            loss = Normalized_MSE_loss(h, h_d)
+
 
         if not return_dict:
             output = (pooled_logits,) + transformer_outputs[1:]
