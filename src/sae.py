@@ -1,30 +1,6 @@
 import torch
 from torch import nn
 
-LLAMA3TEMPLATE = (
-    "{{- bos_token }}"
-    "{%- if not date_string is defined %}"
-        "{%- set date_string = \"26 Jul 2024\" %}"
-    "{%- endif %}"
-
-    "{{- '<|start_header_id|>system<|end_header_id|>\n\n' }}"
-    "{{- 'Cutting Knowledge Date: December 2023\n' }}"
-    "{{- 'Today Date: ' + date_string + '\n\n' }}"
-    "{{- system_message }}"
-    "{{- '<|eot_id|>' }}"
-
-    "{% for message in messages %}"
-        "{% if (message['role'] != 'assistant') %}"
-            "{{ '<|start_header_id|>' + message['role'] + '<|end_header_id|>\n\n' + message['content'] | trim + '<|eot_id|>' }}"
-        "{% elif (message['role'] == 'assistant')%}"
-            "{% generation %}"
-            "{{ '<|start_header_id|>' + message['role'] + '<|end_header_id|>\n\n' }}"
-            "{{ message['content'] | trim + '<|eot_id|>'}}"
-            "{% endgeneration %}"
-        "{% endif %}"
-    "{% endfor %}"
-)
-
 def get_last_assistant_masks(input_ids):
     i=len(input_ids)-4
     while i >= 0:
