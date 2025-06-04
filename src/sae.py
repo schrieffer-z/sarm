@@ -22,6 +22,13 @@ def get_last_assistant_masks(input_ids):
 def Normalized_MSE_loss(x: torch.Tensor, x_hat: torch.Tensor) -> torch.Tensor:
     return (((x_hat - x) ** 2).mean(dim=-1) / (x**2).mean(dim=-1)).mean()
 
+def Masked_Normalized_MSE_loss(x: torch.Tensor, x_hat: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    mask = mask.to(torch.bfloat16)
+    loss = ((x_hat - x) ** 2).mean(dim=-1) / (x**2).mean(dim=-1)
+    assert loss.shape==mask.shape
+    seq_loss = (mask * loss).sum(-1) / (mask.sum(-1))
+    return seq_loss.mean()
+
 def pre_process(hidden_stats: torch.Tensor, eps: float = 1e-6) -> tuple:
     '''
     :param hidden_stats: Hidden states (shape: [batch, max_length, hidden_size]).

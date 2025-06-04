@@ -18,7 +18,7 @@ from transformers.models.llama.modeling_llama import (
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 
 # Local
-from sae import TopkSAE, pre_process, Normalized_MSE_loss
+from sae import TopkSAE, pre_process, Normalized_MSE_loss, Masked_Normalized_MSE_loss
 
 
 logger = logging.get_logger(__name__)
@@ -416,6 +416,17 @@ class LlamaSARM(LlamaPreTrainedModel):
         # Shuyi (查看last_token是否为<|eot_id|>)
         assert ((input_ids[torch.arange(batch_size, device=logits.device), sequence_lengths]!=torch.ones(batch_size, device=logits.device)*128009).sum() == 0).item()
         
+        # Shuyi (联合训练)
+        rec_loss = None
+        if self.sarm_train_mode==2:
+            assert self.sarm_use_topk
+            h_hat = self.sae.decode(sae_features)
+            rec_loss = Masked_Normalized_MSE_loss(h, h_hat, assistant_masks)
+        elif self.sarm_train_mode==3:
+            assert self.sarm_use_topk
+            h_d = h.detach()
+            _, h_hat = self.sae(h_d)
+            rec_loss = Masked_Normalized_MSE_loss(h_d, h_hat, assistant_masks)        
 
         pooled_logits = logits[torch.arange(batch_size, device=logits.device), sequence_lengths]
 
@@ -427,17 +438,8 @@ class LlamaSARM(LlamaPreTrainedModel):
         loss = None
         if labels is not None:
             loss = self.loss_function(logits=logits, labels=labels, pooled_logits=pooled_logits, config=self.config)
-        # Shuyi (联合训练)
-        if self.sarm_train_mode==2:
-            assert self.sarm_use_topk
-            h_hat = self.sae.decode(sae_features)
-            loss = Normalized_MSE_loss(h, h_hat)
-        elif self.sarm_train_mode==3:
-            assert self.sarm_use_topk
-            h_d = h.detach()
-            _, h_hat = self.sae(h_d)
-            loss = Normalized_MSE_loss(h, h_d)
-
+        if rec_loss is not None:
+            loss = rec_loss
 
         if not return_dict:
             output = (pooled_logits,) + transformer_outputs[1:]
