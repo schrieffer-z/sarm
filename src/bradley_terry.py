@@ -25,6 +25,7 @@ from transformers import (
 )
 from transformers.utils import PaddingStrategy
 from transformers.optimization import get_scheduler
+from transformers.trainer import OptimizerNames
 
 # local
 from sarm_llama import LlamaBaseline, LlamaSARM
@@ -441,6 +442,53 @@ class RewardTrainer(Trainer):
             return loss, {"rewards_j": rewards_j, "rewards_k": rewards_k}
         return loss
 
+
+    def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
+        model.train()
+        inputs = self._prepare_inputs(inputs)
+        with self.compute_loss_context_manager():
+            loss = self.compute_loss(model, inputs)
+        del inputs
+
+        if (
+            self.args.torch_empty_cache_steps is not None
+            and self.state.global_step % self.args.torch_empty_cache_steps == 0
+        ):
+            torch.cuda.empty_cache()
+
+        kwargs = {}
+        if self.args.optim in [OptimizerNames.LOMO, OptimizerNames.ADALOMO]:
+            kwargs["learning_rate"] = self._get_learning_rate()
+
+        if self.args.n_gpu > 1:
+            loss = loss.mean()  # mean() to average on multi-gpu parallel training
+        if self.use_apex:
+            with amp.scale_loss(loss, self.optimizer) as scaled_loss:
+                scaled_loss.backward()
+        else:
+            self.accelerator.backward(loss, **kwargs)
+            learning_rate = kwargs.get("learning_rate")
+            self.accelerator.deepspeed_engine_wrapped.engine.backward(loss, **kwargs)
+            
+            for i, _ in enumerate( self.accelerator.deepspeed_engine_wrapped.engine.optimizer.bit16_groups):
+                pass
+            self.accelerator.deepspeed_engine_wrapped.engine.step()
+
+        
+        
+        ck = [param for name, param in model.named_parameters()]
+        for name, param in model.named_parameters():
+            if param.grad is not None:
+                param.grad.zero_()  # 手动清空梯度
+        return loss.detach() / self.args.gradient_accumulation_steps
+
+    # def _get_train_sampler(self):
+    #     if self.train_dataset is None or not hasattr(self.train_dataset, '__len__') or len(self.train_dataset) == 0:
+    #         return None
+
+    #         # 使用 SequentialSampler 保证数据顺序一致
+    #     print("Using SequentialSampler !!!!!!!!!!!!!!!")
+    #     return SequentialSampler(self.train_dataset)
 
 # Train the model, woohoo.
 trainer = RewardTrainer(
