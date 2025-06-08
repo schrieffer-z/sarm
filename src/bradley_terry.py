@@ -1,3 +1,4 @@
+# 修改了/data/zhangsy/miniconda3/envs/sarm/lib/python3.10/site-packages/deepspeed/runtime/zero/stage3.py:1938
 ########################
 # This script is modified from the TRL package https://github.com/huggingface/trl/blob/main/examples/research_projects/stack_llama/scripts/reward_modeling.py
 # This script is designed for the reward modeling with Mistral model which should be handled carefully because it does not have an official pad token
@@ -23,7 +24,7 @@ from transformers import (
     Trainer,
     TrainingArguments,
 )
-from transformers.utils import PaddingStrategy
+from transformers.utils import PaddingStrategy, is_sagemaker_mp_enabled
 from transformers.optimization import get_scheduler
 from transformers.trainer import OptimizerNames
 
@@ -52,6 +53,12 @@ class ScriptArguments:
                 "2: { lm.loss=reconstruct + bt & sae.loss=reconstruct + bt }"
                 "3: { lm.loss=bt & sae.loss=reconstruct + bt }"
             )
+        }
+    )
+    sarm_rec_lambda: Optional[float] = field(
+        default=1.0,
+        metadata={
+            "help": "loss = bt_loss + lambda_rec_loss"
         }
     )
     sarm_use_topk: Optional[bool] = field(
@@ -425,7 +432,8 @@ def compute_metrics(eval_pred):
         pos_predictions_scores > neg_predictions_scores) / len(pos_predictions_scores)
     return result
 
-
+sarm_rec_lambda=script_args.sarm_rec_lambda
+sarm_train_mode=script_args.sarm_train_mode
 class RewardTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False):
         output = model(
@@ -438,57 +446,74 @@ class RewardTrainer(Trainer):
         rewards_j = rewards[jidx]
         rewards_k = rewards[kidx]
         loss = -nn.functional.logsigmoid(rewards_j - rewards_k).mean()
+        global sarm_train_mode, sarm_rec_lambda
+        if sarm_train_mode==2 or sarm_train_mode==3:
+            loss += sarm_rec_lambda * output['loss']
+
         if return_outputs:
             return loss, {"rewards_j": rewards_j, "rewards_k": rewards_k}
-        return loss
+        return loss, {'rec_loss': output['loss']}
 
 
     def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
+        """
+        Perform a training step on a batch of inputs.
+
+        Subclass and override to inject custom behavior.
+
+        Args:
+            model (`nn.Module`):
+                The model to train.
+            inputs (`Dict[str, Union[torch.Tensor, Any]]`):
+                The inputs and targets of the model.
+
+                The dictionary will be unpacked before being fed to the model. Most models expect the targets under the
+                argument `labels`. Check your model's documentation for all accepted arguments.
+
+        Return:
+            `torch.Tensor`: The tensor with training loss on this batch.
+        """
         model.train()
         inputs = self._prepare_inputs(inputs)
+        if is_sagemaker_mp_enabled():
+            loss_mb = smp_forward_backward(model, inputs, self.args.gradient_accumulation_steps)
+            return loss_mb.reduce_mean().detach().to(self.args.device)
+
         with self.compute_loss_context_manager():
             loss = self.compute_loss(model, inputs)
-        del inputs
 
+        del inputs
         if (
             self.args.torch_empty_cache_steps is not None
             and self.state.global_step % self.args.torch_empty_cache_steps == 0
         ):
-            torch.cuda.empty_cache()
+            if is_xpu_available():
+                torch.xpu.empty_cache()
+            elif is_mlu_available():
+                torch.mlu.empty_cache()
+            elif is_npu_available():
+                torch.npu.empty_cache()
+            elif is_torch_version(">=", "2.0") and is_mps_available():
+                torch.mps.empty_cache()
+            else:
+                torch.cuda.empty_cache()
 
         kwargs = {}
+
+        # For LOMO optimizers you need to explicitly use the learnign rate
         if self.args.optim in [OptimizerNames.LOMO, OptimizerNames.ADALOMO]:
             kwargs["learning_rate"] = self._get_learning_rate()
 
         if self.args.n_gpu > 1:
             loss = loss.mean()  # mean() to average on multi-gpu parallel training
+
         if self.use_apex:
             with amp.scale_loss(loss, self.optimizer) as scaled_loss:
                 scaled_loss.backward()
         else:
             self.accelerator.backward(loss, **kwargs)
-            learning_rate = kwargs.get("learning_rate")
-            self.accelerator.deepspeed_engine_wrapped.engine.backward(loss, **kwargs)
-            
-            for i, _ in enumerate( self.accelerator.deepspeed_engine_wrapped.engine.optimizer.bit16_groups):
-                pass
-            self.accelerator.deepspeed_engine_wrapped.engine.step()
 
-        
-        
-        ck = [param for name, param in model.named_parameters()]
-        for name, param in model.named_parameters():
-            if param.grad is not None:
-                param.grad.zero_()  # 手动清空梯度
         return loss.detach() / self.args.gradient_accumulation_steps
-
-    # def _get_train_sampler(self):
-    #     if self.train_dataset is None or not hasattr(self.train_dataset, '__len__') or len(self.train_dataset) == 0:
-    #         return None
-
-    #         # 使用 SequentialSampler 保证数据顺序一致
-    #     print("Using SequentialSampler !!!!!!!!!!!!!!!")
-    #     return SequentialSampler(self.train_dataset)
 
 # Train the model, woohoo.
 trainer = RewardTrainer(

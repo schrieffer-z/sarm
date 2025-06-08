@@ -44,5 +44,6 @@ for sae_path in ${sae_paths[@]}; do
         --sarm_use_baseline false \
         --sarm_use_topk true \
         --sarm_aggregate_latents true \
-        --sarm_train_mode 1
+        --sarm_train_mode 3 \
+        --sarm_rec_lambda 1
 done
