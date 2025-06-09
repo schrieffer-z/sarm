@@ -452,7 +452,7 @@ class RewardTrainer(Trainer):
 
         if return_outputs:
             return loss, {"rewards_j": rewards_j, "rewards_k": rewards_k}
-        return loss, {'rec_loss': output['loss']}
+        return loss
 
 
     def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
