@@ -50,4 +50,4 @@ done
 
 # JudgeBench
 export CUDA_VISIBLE_DEVICES=0
-python ./src/run_eval.py --model_dir /NAS/zhangsy/sarm_models/Llama-3.1-8B-Instruct_token_Latent32768_Layer16_K192_50M-SARM-TopK-Aggregated-1/
+python ./src/run_eval.py --model_dir $output_path
