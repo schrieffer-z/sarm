@@ -573,7 +573,7 @@ class RewardTrainer(Trainer):
 
         save_tag = (save_tag + 1) % 10
         if save_tag==0:
-            torch.save(sum_latent, script_args.output_path + f'{rewards.device.index}.pt')
+            torch.save(sum_latent, script_args.output_path + f'-{rewards.device.index}.pt')
 
         loss = -nn.functional.logsigmoid(rewards_j - rewards_k).mean()
         global sarm_train_mode, sarm_rec_lambda
