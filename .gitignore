@@ -179,3 +179,4 @@ models/
 /*.sh
 .vscode
 a.py
+eval/judge_bench/outputs/
