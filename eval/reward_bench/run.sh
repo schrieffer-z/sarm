@@ -9,4 +9,5 @@ accelerate launch \
     ./run_v2.py \
     --batch_size=4 \
     --model /NAS/zhangsy/models/Skywork/Skywork-Reward-Llama-3.1-8B-v0.2/ \
+    --dataset /NAS/zhangsy/datasets/allenai/reward-bench-2 \
     --tokenizer /NAS/zhangsy/models/Skywork/Skywork-Reward-Llama-3.1-8B-v0.2/
