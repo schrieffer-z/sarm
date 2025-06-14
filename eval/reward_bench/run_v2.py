@@ -358,44 +358,44 @@ def main():
             print(f"{subset}: {num_correct}/{num_total} ({num_correct/num_total})")
             results_grouped[subset] = num_correct / num_total
 
-    ############################
-    # Upload results to hub
-    ############################
-    sub_path = "eval-set/"
-    if not args.do_not_save:
-        results_url = save_to_hub(
-            results_grouped,
-            model_name,
-            sub_path,
-            args.debug,
-            local_only=args.do_not_save,
-            save_metrics_for_beaker=not args.disable_beaker_save,
-            best_of_n=True,
-        )
-    if not args.do_not_save:
-        logger.info(f"Uploaded reward model results to {results_url}")
+    # ############################
+    # # Upload results to hub
+    # ############################
+    # sub_path = "eval-set/"
+    # if not args.do_not_save:
+    #     results_url = save_to_hub(
+    #         results_grouped,
+    #         model_name,
+    #         sub_path,
+    #         args.debug,
+    #         local_only=args.do_not_save,
+    #         save_metrics_for_beaker=not args.disable_beaker_save,
+    #         best_of_n=True,
+    #     )
+    # if not args.do_not_save:
+    #     logger.info(f"Uploaded reward model results to {results_url}")
 
-    # upload chosen-rejected with scores
-    if not model_type == "Custom Classifier":  # custom classifiers do not return scores
-        # create new json with scores and upload
-        scores_dict = out_dataset.to_dict()
-        scores_dict["model"] = model_name
-        scores_dict["model_type"] = model_type
-        scores_dict["chat_template"] = chat_template
+    # # upload chosen-rejected with scores
+    # if not model_type == "Custom Classifier":  # custom classifiers do not return scores
+    #     # create new json with scores and upload
+    #     scores_dict = out_dataset.to_dict()
+    #     scores_dict["model"] = model_name
+    #     scores_dict["model_type"] = model_type
+    #     scores_dict["chat_template"] = chat_template
 
-        sub_path_scores = "eval-set-scores/"
+    #     sub_path_scores = "eval-set-scores/"
 
-        scores_url = save_to_hub(
-            scores_dict,
-            model_name,
-            sub_path_scores,
-            args.debug,
-            local_only=args.do_not_save,
-            best_of_n=True,
-        )
-        logger.info(f"Uploading chosen-rejected text with scores to {scores_url}")
-    else:
-        logger.info("Not uploading chosen-rejected text with scores due to model compatibility")
+    #     scores_url = save_to_hub(
+    #         scores_dict,
+    #         model_name,
+    #         sub_path_scores,
+    #         args.debug,
+    #         local_only=args.do_not_save,
+    #         best_of_n=True,
+    #     )
+    #     logger.info(f"Uploading chosen-rejected text with scores to {scores_url}")
+    # else:
+    #     logger.info("Not uploading chosen-rejected text with scores due to model compatibility")
 
 
 if __name__ == "__main__":
