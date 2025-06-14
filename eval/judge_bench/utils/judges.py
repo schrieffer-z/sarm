@@ -745,7 +745,7 @@ def get_judge_from_judge_name_and_model(judge_name: str, judge_model: str) -> Ju
             return InternLM2Reward(judge_model)
         elif judge_model in ["Ray2333/GRM-Gemma-2B-rewardmodel-ft"]:
             return GRMReward(judge_model)
-        elif judge_model in ["Skywork/Skywork-Reward-Gemma-2-27B", "Skywork/Skywork-Reward-Llama-3.1-8B"]:
+        elif judge_model in ["Skywork/Skywork-Reward-Gemma-2-27B", "Skywork/Skywork-Reward-Llama-3.1-8B", "/NAS/zhangsy/models/Skywork/Skywork-Reward-Llama-3.1-8B-v0.2"]:
             return SkyworkReward(judge_model)
         elif "SARM" in judge_model:
             return SARM(judge_model)
