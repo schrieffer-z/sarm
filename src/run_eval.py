@@ -10,6 +10,51 @@ import time
 import pandas as pd
 from pathlib import Path
 
+
+def process_judgebench_results(base_dir, checkpoint_dir, process):
+    return_code = process.wait()
+
+    s = ""
+    for line in process.stdout:
+        s += line.strip()
+
+    # 检查执行结果
+    if return_code == 0:
+        pattern = r'(mmlu-pro|livebench-reasoning|livebench-math|livecodebench|Overall):\s*(\d+\.\d+)%'
+        matches = re.findall(pattern, s)
+
+        # 提取结果存储到字典
+        metrics_dict = {}
+        for name, value in matches:
+            metrics_dict[name] = float(value)
+
+        results_leaderboard = pd.DataFrame(dict({
+                'Name': [checkpoint_dir], 
+                'Overall': [metrics_dict['Overall']], 
+                'Knowledge': [metrics_dict['mmlu-pro']], 
+                'Reasoning': [metrics_dict['livebench-reasoning']], 
+                'Math': [metrics_dict['livebench-math']], 'Coding': [metrics_dict['livecodebench']],
+            }))
+        lpath = os.path.join(base_dir,'leaderboard.csv')
+        
+        print("saving leaderboard to :",lpath)
+        lboard = None
+        if not os.path.exists(lpath):
+            lboard=pd.DataFrame(dict({
+                'Name': ['Random'], 'Overall': [50.0], 'Knowledge': [50.0], 'Reasoning': [50.0], 'Math': [50.0], 'Coding': [50.0],
+            }))
+        else:
+            lboard = pd.read_csv(lpath, index_col=0)
+        df_to_save = pd.concat([lboard, results_leaderboard]).reset_index(drop=True)
+        df_to_save.to_csv(lpath)
+    else:
+        print(f"❌ 执行失败: {checkpoint_dir} (返回码: {return_code})")
+
+
+
+
+
+
 def run_batch_evaluations(base_dir, pairs_file, checkpoint_prefix="checkpoint-"):
     """
     批量运行给定目录中的所有checkpoint
@@ -25,6 +70,7 @@ def run_batch_evaluations(base_dir, pairs_file, checkpoint_prefix="checkpoint-")
         d for d in all_items 
         if d.startswith(checkpoint_prefix) and os.path.isdir(os.path.join(base_dir, d))
     ])
+    checkpoint_dirs = sorted(checkpoint_dirs, key=lambda s: int(re.search(r'-(\d+)$', s).group(1)))
     
     if not checkpoint_dirs:
         print(f"错误：在 {base_dir} 中未找到任何以'{checkpoint_prefix}'开头的checkpoint目录")
@@ -36,86 +82,67 @@ def run_batch_evaluations(base_dir, pairs_file, checkpoint_prefix="checkpoint-")
     for i, checkpoint_dir in enumerate(checkpoint_dirs):
         checkpoint_path = os.path.join(base_dir, checkpoint_dir)
         print(f"\n===== 处理checkpoint {i+1}/{len(checkpoint_dirs)}: {checkpoint_dir} =====")
-        
-        
-        cmd = [
-            "python", "run_judge.py",
-            "--judge_name", "reward_model",
-            "--judge_model", checkpoint_path,
-            "--pairs", "data/dataset=judgebench,response_model=gpt-4o-2024-05-13.jsonl",
-        ]
-        
-        print("执行命令:", " ".join(cmd))
-        
-        # 运行命令并实时输出
-        # try:
-        start_time = time.time()
-        process = subprocess.Popen(
-            cmd, 
+            
+        ##################################### Judge Bench #####################################
+        env_vars = os.environ.copy()
+        env_vars.update({
+            "CUDA_VISIBLE_DEVICES": "0"  # 使用前两个GPU
+        })
+        judgebench = subprocess.Popen(
+            [
+                "python", "run_judge.py",
+                "--judge_name", "reward_model",
+                "--judge_model", checkpoint_path,
+                "--pairs", "data/dataset=judgebench,response_model=gpt-4o-2024-05-13.jsonl",
+            ], 
             cwd='/data/zhangsy/JudgeBench/',
             stdout=subprocess.PIPE, 
             stderr=subprocess.STDOUT,
-            universal_newlines=True
+            universal_newlines=True,
+            env=env_vars
         )
-        # 实时输出日志
-        s = ""
-        for line in process.stdout:
-            s += line.strip()
-        print(s)
+        #####################################  RM Bench  ######################################
+        # env_vars = os.environ.copy()
+        # env_vars.update({
+        #     "CUDA_VISIBLE_DEVICES": "1"  # 使用前两个GPU
+        # })
+        # judgebench = subprocess.Popen(
+        #     [
+        #         "python", "run_judge.py",
+        #         "--judge_name", "reward_model",
+        #         "--judge_model", checkpoint_path,
+        #         "--pairs", "data/dataset=judgebench,response_model=gpt-4o-2024-05-13.jsonl",
+        #     ], 
+        #     cwd='/data/zhangsy/JudgeBench/',
+        #     stdout=subprocess.PIPE, 
+        #     stderr=subprocess.STDOUT,
+        #     universal_newlines=True,
+        #     env=env_vars
+        # )
+        ################################### Reward Bench V2 ###################################
+        # env_vars = os.environ.copy()
+        # env_vars.update({
+        #     "CUDA_VISIBLE_DEVICES": "3"  # 使用前两个GPU
+        # })
+        # judgebench = subprocess.Popen(
+        #     [
+        #         "python", "run_judge.py",
+        #         "--judge_name", "reward_model",
+        #         "--judge_model", checkpoint_path,
+        #         "--pairs", "data/dataset=judgebench,response_model=gpt-4o-2024-05-13.jsonl",
+        #     ], 
+        #     cwd='/data/zhangsy/JudgeBench/',
+        #     stdout=subprocess.PIPE, 
+        #     stderr=subprocess.STDOUT,
+        #     universal_newlines=True,
+        #     env=env_vars
+        # )
 
-        return_code = process.wait()
-    
-        # 检查执行结果
-        if return_code == 0:
-            print(f"✅ 成功完成: {checkpoint_dir} (耗时: {time.time()-start_time:.1f}秒)")
-            pattern = r'(mmlu-pro|livebench-reasoning|livebench-math|livecodebench|Overall):\s*(\d+\.\d+)%'
-            matches = re.findall(pattern, s)
+        ###################################  wait & process  ##################################
+        process_judgebench_results(base_dir, checkpoint_dir, judgebench)
 
-            # 提取结果存储到字典
-            metrics_dict = {}
-            for name, value in matches:
-                metrics_dict[name] = float(value)
-            print(f"mmlu-pro: {metrics_dict['mmlu-pro']}%")
-            print(f"livebench-reasoning: {metrics_dict['livebench-reasoning']}%")
-            print(f"livebench-math: {metrics_dict['livebench-math']}%")
-            print(f"livecodebench: {metrics_dict['livecodebench']}%")
-            print(f"Overall: {metrics_dict['Overall']}%")
-
-            results_leaderboard = pd.DataFrame(dict({
-                    'Name': [checkpoint_dir],
-                    'Overall': [metrics_dict['Overall']],
-                    'Knowledge': [metrics_dict['mmlu-pro']],
-                    'Reasoning': [metrics_dict['livebench-reasoning']],
-                    'Math': [metrics_dict['livebench-math']],
-                    'Coding': [metrics_dict['livecodebench']],
-                }))
-            lpath = os.path.join(base_dir,'leaderboard.csv')
-            
-            print("saving leaderboard to :",lpath)
-            lboard = None
-            if not os.path.exists(lpath):
-                lboard=pd.DataFrame(dict({
-                    'Name': ['Random'],
-                    'Overall': [50.0],
-                    'Knowledge': [50.0],
-                    'Reasoning': [50.0],
-                    'Math': [50.0],
-                    'Coding': [50.0],
-                }))
-            else:
-                lboard = pd.read_csv(lpath, index_col=0)
-            df_to_save = pd.concat([lboard, results_leaderboard]).reset_index(drop=True)
-            df_to_save.to_csv(lpath)
-        else:
-            print(f"❌ 执行失败: {checkpoint_dir} (返回码: {return_code})")
-            
-        # except Exception as e:
-        #     print(f"❌ 执行出错: {str(e)}")
-        
-        # 添加间隔防止资源冲突
-        time.sleep(2)
-    
     print("\n所有checkpoint处理完成!")
+
 
 if __name__ == "__main__":
     # 解析命令行参数

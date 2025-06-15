@@ -185,14 +185,14 @@ output_name = script_args.output_path
 def build_dataset(tokenizer, train_path, eval_path):
 
     def tokenize(sample):
-        chosen = context + {
+        chosen = sample['context'] + [{
             'role': 'assistant',
-            'content': sample['response2'] if sample['overall_preference']>=0 else: sample['response1']
-        }
-        rejected = context + {
+            'content': sample['response2'] if sample['overall_preference']>=0 else sample['response1']
+        }]
+        rejected = sample['context'] + [{
             'role': 'assistant',
-            'content': sample['response1'] if sample['overall_preference']>=0 else: sample['response2']
-        }
+            'content': sample['response1'] if sample['overall_preference']>=0 else sample['response2']
+        }]
 
         sample['positive'] = tokenizer.apply_chat_template(chosen, tokenize=False, add_generation_prompt=False)
         if tokenizer.bos_token!=None:
@@ -427,6 +427,7 @@ class RewardDataCollatorWithPadding:
             "input_ids": batch["input_ids"],
             "attention_mask": batch["attention_mask"],
             "assistant_masks": batch_for_assistant_masks["attention_mask"],
+            "m": features['m'],
             "return_loss": True,
         }
         return batch

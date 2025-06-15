@@ -175,7 +175,7 @@ cython_debug/
 
 # SARM
 alinks/
-models/
+/models/
 /*.sh
 .vscode
 a.py
