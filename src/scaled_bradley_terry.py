@@ -427,7 +427,7 @@ class RewardDataCollatorWithPadding:
             "input_ids": batch["input_ids"],
             "attention_mask": batch["attention_mask"],
             "assistant_masks": batch_for_assistant_masks["attention_mask"],
-            "m": features['m'],
+            "m": [feature['m'] for feature in features],
             "return_loss": True,
         }
         return batch
@@ -456,7 +456,8 @@ class RewardTrainer(Trainer):
         kidx = jidx + 1
         rewards_j = rewards[jidx]
         rewards_k = rewards[kidx]
-        loss = -nn.functional.logsigmoid(rewards_j - rewards_k).mean()
+        loss =  nn.functional.logsigmoid(rewards_j - rewards_k) * torch.tensor(inputs['m'], device=rewards.device).view(rewards_j.shape)
+        loss = -loss.mean()
         global sarm_train_mode, sarm_rec_lambda
         if sarm_train_mode==2 or sarm_train_mode==3:
             loss += sarm_rec_lambda * output['loss']
