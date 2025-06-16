@@ -94,10 +94,25 @@ def main(args: argparse.Namespace) -> None:
     # 7. compute final metrics
     print("Computing final metrics ...") 
     pairs = file_operations.read_jsonl(file_path)  # need to load all the history, not just the generated one.
+    
+    model_name = os.path.normpath(args.judge_model)
+    output_dict = {
+        "model": model_name[model_name.rfind('/')+1:]
+    }
+    src2name = {
+        'mmlu-pro': 'Knowledge', 
+        "livebench-reasoning": "Reasoning", 
+        "livebench-math": "Math", 
+        "livecodebench": "Coding",
+        "Overall": "Overall"
+    }
     for source in ["mmlu-pro", "livebench-reasoning", "livebench-math", "livecodebench", ""]:
         score = metrics.compute_final_metrics(pairs, not args.single_game, include_fn = lambda x: x["source"].startswith(source))
         print(f"{source if source else 'Overall'}: {score:.2f}%.")
-
+        name = src2name[source if source else 'Overall']
+        output_dict[name] = score
+    with open(os.path.join(args.judge_model, 'judge_bench.json'), 'w') as f:
+        json.dump(output_dict, f, indent=4, ensure_ascii=False)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
