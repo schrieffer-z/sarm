@@ -1,0 +1,3 @@
+
+python src/run_eval.py --base_dir /NAS/zhangsy/sarm_models/... devices "0,1,2"
+python src/read_all.py --base_dir /NAS/zhangsy/sarm_models/...
