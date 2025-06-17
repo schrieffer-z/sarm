@@ -180,3 +180,4 @@ alinks/
 .vscode
 a.py
 eval/judge_bench/outputs/
+eval/rm_bench/results
