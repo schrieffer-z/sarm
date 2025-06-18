@@ -27,7 +27,7 @@ TASK_COMMANDS = {
     "reward_bench": [
         "python", "eval_rewardbench_sarm_llama.py",
         "--batch_size=1",
-        "--dataset", "/NAS/zhangsy/datasets/allenai/reward-bench-2"
+        "--dataset", "reward-bench-2"
     ],
     "rm_bench": [
         "python", "eval_rmbench_sarm_llama.py",
