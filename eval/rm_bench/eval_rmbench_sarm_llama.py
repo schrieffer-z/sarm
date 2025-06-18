@@ -126,6 +126,10 @@ def get_args():
 
 def main():
     args = get_args()
+
+    if os.path.exists(os.path.join(args.model, 'rm_bench.json')):
+        return
+
     ###############
     # Setup logging
     ###############

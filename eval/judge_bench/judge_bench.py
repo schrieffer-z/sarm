@@ -56,7 +56,8 @@ async def judge_pairs(pairs: List[Dict[str, Any]], judge_name: str, judge_model:
 
 
 def main(args: argparse.Namespace) -> None:
-    
+    if os.path.exists(os.path.join(args.judge_model, 'judge_bench.json')):
+        return
     random.seed(args.seed)
     
     pairs = file_operations.read_jsonl(args.pairs)    

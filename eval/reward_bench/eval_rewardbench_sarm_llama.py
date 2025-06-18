@@ -129,6 +129,9 @@ def get_args():
 def main():
     args = get_args()
 
+    if os.path.exists(os.path.join(args.model, 'reward_benchv2.json')):
+        return
+    
     # ------- Registering Olmo config for Olmo 2 reward models -------
     if "olmo" in args.model.lower():
         from scripts.olmo_adapter import (
