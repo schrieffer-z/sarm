@@ -47,7 +47,3 @@ for sae_path in ${sae_paths[@]}; do
         --sarm_train_mode 3 \
         --sarm_rec_lambda 1
 done
-
-# JudgeBench
-export CUDA_VISIBLE_DEVICES=0
-python ./src/run_eval.py --model_dir $output_path
