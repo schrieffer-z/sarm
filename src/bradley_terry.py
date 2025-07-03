@@ -1,4 +1,3 @@
-# 修改了/data/zhangsy/miniconda3/envs/sarm/lib/python3.10/site-packages/deepspeed/runtime/zero/stage3.py:1938
 ########################
 # This script is modified from the TRL package https://github.com/huggingface/trl/blob/main/examples/research_projects/stack_llama/scripts/reward_modeling.py
 # This script is designed for the reward modeling with Mistral model which should be handled carefully because it does not have an official pad token
