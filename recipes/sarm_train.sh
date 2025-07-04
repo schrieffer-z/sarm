@@ -1,4 +1,4 @@
-export HF_HOME=
+export HF_HOME=/data/zhangsy/.cache
 export NCCL_P2P_DISABLE=1 
 export NCCL_IB_DISABLE=1 
 
@@ -13,8 +13,9 @@ num_train_epochs=3
 # base model path & output path
 sarm_base_model=llama
 model_name=
-sae_path=
-output_path=
+sae_title=Llama-3.1-8B-Instruct_sequence_Latent65536_Layer16_K192_1B
+sae_path=.../$sae_title.pt
+output_path=.../$sae_title-SARM-woTopK-LastToken-1
 train_set_path=
 
 # sarm config
