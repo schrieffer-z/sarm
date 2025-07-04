@@ -12,9 +12,10 @@ num_train_epochs=3
 
 # base model path & output path
 sarm_base_model=llama
-model_name=/NAS/zhangsy/models/meta/Llama-3.1-8B-Instruct
-sae_path=/NAS/zhangsy/SAE_models/Llama-3.1-8B-Instruct_token_Latent32768_Layer16_K192_50M
-output_path=/NAS/zhangsy/sarm_models/$sae_path-SARM-TopK-1
+model_name=
+sae_path=
+output_path=
+train_set_path=
 
 # sarm config
 sae_use_sequence_level=false
@@ -39,7 +40,7 @@ accelerate launch \
     --learning_rate $learning_rate \
     --num_train_epochs $num_train_epochs \
     --per_device_train_batch_size $per_device_train_batch_size \
-    --train_set_path /NAS/zhangsy/datasets/Skywork/Skywork-Reward-Preference-80K-v0.2/data/train-00000-of-00001.parquet \
+    --train_set_path $train_set_path \
     --sae_path $sae_path.pt \
     --sarm_base_model $sarm_base_model \
     --sae_use_sequence_level $sae_use_sequence_level \
