@@ -243,88 +243,112 @@ def visualize_comparison(results, overall_avg, base_dir):
         output_dir = os.path.join(base_dir, "analysis_results")
         os.makedirs(output_dir, exist_ok=True)
         
-        # 1. benchmark 平均分比较（按 checkpoint 顺序）
-        plt.figure(figsize=(12, 6))
-        if "benchmark_average" in df.columns:
-            plt.plot(df["checkpoint_num"], df["benchmark_average"], "o-", markersize=8)
-            plt.axhline(y=overall_avg.get("benchmark_average", 0), color="r", linestyle="--", 
-                       label=f"Average Value ({overall_avg.get('benchmark_average', 0):.2f}%)")
-            
-            # 标记最高点
-            max_index = df["benchmark_average"].idxmax()
-            max_value = df.loc[max_index, "benchmark_average"]
-            plt.annotate(
-                f'Max: {max_value:.2f}%', 
-                xy=(df.loc[max_index, "checkpoint_num"], max_value),
-                xytext=(10, 20), 
-                textcoords='offset points',
-                arrowprops=dict(arrowstyle="->", color="blue")
-            )
-            
-            plt.title("Model Performance by Training Steps")
-            plt.xlabel("Training Steps")
-            plt.ylabel("Average Score (%)")
-            plt.legend()
-            plt.grid(True, alpha=0.3)
-            plt.tight_layout()
-            plt.savefig(os.path.join(output_dir, "benchmark_trend_by_checkpoint.png"))
-            plt.close()
-        
-        # 2. 各个 benchmark 详细分项比较
+        # 1. Judge Bench 详细指标分析（小分和总分）
         plt.figure(figsize=(15, 8))
-        if "judge_Overall" in df.columns and "reward_average" in df.columns and "rm_total_avg_acc" in df.columns:
-            plt.plot(df["checkpoint_num"], df["judge_Overall"], "o-", markersize=6, label="Judge Bench")
-            plt.plot(df["checkpoint_num"], df["reward_average"], "o-", markersize=6, label="Reward Bench")
-            plt.plot(df["checkpoint_num"], df["rm_total_avg_acc"], "o-", markersize=6, label="RM Bench")
+        # 获取所有 Judge Bench 相关列（排除可能的benchmark_average列）
+        judge_cols = [col for col in df.columns if col.startswith("judge_")]
+
+        if judge_cols:
+            # 绘图
+            ax = plt.subplot(111)
+            for col in judge_cols:
+                # 获取列名中的标签部分（去掉前缀）
+                label = col.replace("judge_", "")
+                # 绘制折线图
+                ax.plot(df["checkpoint_num"], df[col], 
+                        marker='o', markersize=5, linewidth=2, label=label)
             
-            # 添加平均线
-            plt.axhline(y=overall_avg.get("judge_Overall", 0), color="r", linestyle="--", 
-                       alpha=0.7, label=f"Judge Avg ({overall_avg.get('judge_Overall', 0):.2f}%)")
-            plt.axhline(y=overall_avg.get("reward_average", 0), color="g", linestyle="--", 
-                       alpha=0.7, label=f"Reward Avg ({overall_avg.get('reward_average', 0):.2f}%)")
-            plt.axhline(y=overall_avg.get("rm_total_avg_acc", 0), color="b", linestyle="--", 
-                       alpha=0.7, label=f"RM Avg ({overall_avg.get('rm_total_avg_acc', 0):.2f}%)")
-            
-            plt.title("Benchmark Scores by Training Steps")
+            plt.title("Judge Bench Performance by Training Steps")
             plt.xlabel("Training Steps")
             plt.ylabel("Score (%)")
-            plt.legend(ncol=2, loc='upper left', bbox_to_anchor=(0, 1))
+            plt.legend(loc='upper left', bbox_to_anchor=(0, -0.1), ncol=3)
             plt.grid(True, alpha=0.3)
             plt.tight_layout()
-            plt.savefig(os.path.join(output_dir, "detailed_benchmark_trends.png"))
+            plt.savefig(os.path.join(output_dir, "1_judge_bench_metrics.png"))
             plt.close()
         
-        # 3. Judge Bench 详细指标分析
-        plt.figure(figsize=(14, 8))
-        judge_cols = [col for col in df.columns if col.startswith("judge_") and col != "judge_Overall"]
-        if judge_cols:
-            # 提取详细指标
-            judge_metrics = ["Coding", "Knowledge", "Math", "Reasoning"]
-            judge_df = df[["checkpoint_num"]].copy()
-            for metric in judge_metrics:
-                col_name = f"judge_{metric}"
-                if col_name in df.columns:
-                    judge_df[metric] = df[col_name]
-            
-            # 创建图表
+        # 2. Reward Bench V2 详细指标分析
+        plt.figure(figsize=(15, 8))
+        reward_cols = [col for col in df.columns if col.startswith("reward_") and col != "reward_average"]
+        if reward_cols:
+            # 绘制总分
             ax = plt.subplot(111)
-            for metric in judge_metrics:
-                if metric in judge_df.columns:
-                    ax.plot(judge_df["checkpoint_num"], judge_df[metric], 
-                            marker='o', markersize=5, label=metric)
+            if "reward_average" in df.columns:
+                ax.plot(df["checkpoint_num"], df["reward_average"], "o-", 
+                        markersize=6, linewidth=3, color="black", label="Average (Overall)")
             
-            # 添加总体平均线
-            if "judge_Overall" in df.columns:
-                ax.plot(df["checkpoint_num"], df["judge_Overall"], "ko--", 
-                       linewidth=2, markersize=8, label="Overall Score")
+            # 绘制各小分
+            for col in reward_cols:
+                # 获取列名中的标签部分（去掉前缀）
+                label = col.replace("reward_", "")
+                ax.plot(df["checkpoint_num"], df[col], 
+                        marker='o', markersize=4, linewidth=1.5, label=label)
             
-            plt.title("Judge Bench Metrics Analysis")
+            plt.title("Reward Bench V2 Performance by Training Steps")
             plt.xlabel("Training Steps")
             plt.ylabel("Score (%)")
-            plt.legend()
+            plt.legend(loc='upper left', bbox_to_anchor=(0, -0.15), ncol=3)
             plt.grid(True, alpha=0.3)
             plt.tight_layout()
-            plt.savefig(os.path.join(output_dir, "judge_bench_metrics_analysis.png"))
+            plt.savefig(os.path.join(output_dir, "2_reward_bench_metrics.png"))
+            plt.close()
+        
+        # 3. RM Bench 详细指标分析
+        plt.figure(figsize=(15, 8))
+        rm_cols = [col for col in df.columns if col.startswith("rm_") and col != "rm_total_avg_acc"]
+        if rm_cols:
+            # 绘制总分
+            ax = plt.subplot(111)
+            if "rm_total_avg_acc" in df.columns:
+                ax.plot(df["checkpoint_num"], df["rm_total_avg_acc"], "o-", 
+                        markersize=6, linewidth=3, color="black", label="Total Avg (Overall)")
+            
+            # 绘制各小分
+            for col in rm_cols:
+                # 获取列名中的标签部分（去掉前缀）
+                label = col.replace("rm_", "")
+                ax.plot(df["checkpoint_num"], df[col], 
+                        marker='o', markersize=4, linewidth=1.5, label=label)
+            
+            plt.title("RM Bench Performance by Training Steps")
+            plt.xlabel("Training Steps")
+            plt.ylabel("Score (%)")
+            plt.legend(loc='upper left', bbox_to_anchor=(0, -0.15), ncol=3)
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            plt.savefig(os.path.join(output_dir, "3_rm_bench_metrics.png"))
+            plt.close()
+        
+        # 4. 3个Benchmarks的总分比较
+        plt.figure(figsize=(12, 6))
+        # 检查三个关键指标列是否存在
+        benchmarks_available = False
+        labels = []
+        lines = []
+        
+        if "judge_Overall" in df.columns:
+            plt.plot(df["checkpoint_num"], df["judge_Overall"], "o-", markersize=8, linewidth=2.5, color="red")
+            labels.append("Judge Bench")
+            benchmarks_available = True
+            
+        if "reward_average" in df.columns:
+            plt.plot(df["checkpoint_num"], df["reward_average"], "o-", markersize=8, linewidth=2.5, color="green")
+            labels.append("Reward Bench")
+            benchmarks_available = True
+            
+        if "rm_total_avg_acc" in df.columns:
+            plt.plot(df["checkpoint_num"], df["rm_total_avg_acc"], "o-", markersize=8, linewidth=2.5, color="blue")
+            labels.append("RM Bench")
+            benchmarks_available = True
+        
+        if benchmarks_available:
+            plt.title("Comparison of Benchmarks Overall Scores")
+            plt.xlabel("Training Steps")
+            plt.ylabel("Score (%)")
+            plt.legend(labels)
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            plt.savefig(os.path.join(output_dir, "4_benchmarks_comparison.png"))
             plt.close()
         
         print(f"Generated analysis charts in: {output_dir}")
