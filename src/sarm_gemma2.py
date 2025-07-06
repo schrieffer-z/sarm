@@ -17,7 +17,7 @@ from transformers.cache_utils import Cache
 from transformers.utils import logging
 
 # Local
-from sae import TopkSAE, pre_process
+from sae import TopkSAE, pre_process, Normalized_MSE_loss, Masked_Normalized_MSE_loss
 
 logger = logging.get_logger(__name__)
 
@@ -148,7 +148,8 @@ class MyGemma2Model(Gemma2PreTrainedModel):
             if output_attentions:
                 all_self_attns += (layer_outputs[1],)
 
-        hidden_states = self.norm(hidden_states)
+        # Shuyi(最后不需要预测tokens，因此不经过norm)
+        # hidden_states = self.norm(hidden_states)
 
         # add hidden states from the last decoder layer
         if output_hidden_states:
@@ -217,19 +218,26 @@ class MyGemma2Model(Gemma2PreTrainedModel):
 class Gemma2SARM(Gemma2PreTrainedModel):
     def __init__(
             # Shuyi (sae init 传参)
-            self, config, sae_hidden_state_source_layer, sae_latent_size, sae_k, sae4rm_use_topk=False
+            self, config, sae_hidden_state_source_layer, sae_latent_size, sae_k, 
+            sae_use_sequence_level=False,
+            sarm_use_topk=False, 
+            sarm_train_mode=1
     ):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.model = MyGemma2Model(config, sae_hidden_state_source_layer)
         
         # Shuyi (SAE init)
-        self.sae4rm_use_topk = sae4rm_use_topk
+        self.sae_use_sequence_level = sae_use_sequence_level
+        self.sarm_use_topk = sarm_use_topk
+        self.sarm_train_mode = sarm_train_mode
+
         self.score = nn.Linear(sae_latent_size, self.num_labels, bias=False)
         self.sae = TopkSAE(hidden_size=self.model.config.hidden_size, latent_size=sae_latent_size, k=sae_k)
 
-        for p in self.sae.parameters():
-            p.requires_grad_(False)
+        if self.sarm_train_mode==1:
+            for p in self.sae.parameters():
+                p.requires_grad_(False)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -275,9 +283,9 @@ class Gemma2SARM(Gemma2PreTrainedModel):
         hidden_states = transformer_outputs[0]
         
         # Shuyi
-        normalized_hidden_states, _, _ = pre_process(hidden_states)
-        sae_features = self.sae.pre_acts(normalized_hidden_states)
-        if self.sae4rm_use_topk:
+        h, _, _ = pre_process(hidden_states)
+        sae_features = self.sae.pre_acts(h)
+        if self.sarm_use_topk:
             sae_features = self.sae.get_latents(sae_features)
     
         logits = self.score(sae_features)
@@ -299,6 +307,32 @@ class Gemma2SARM(Gemma2PreTrainedModel):
                 sequence_lengths = sequence_lengths.to(logits.device)
             else:
                 sequence_lengths = -1
+
+        # Shuyi (查看last_token是否为<|eot_id|>)
+        assert ((input_ids[torch.arange(batch_size, device=logits.device), sequence_lengths]!=torch.ones(batch_size, device=logits.device)*128009).sum() == 0).item()
+        
+        # Shuyi (联合训练)
+        rec_loss = None
+        if self.sarm_train_mode==2:
+            if not self.sarm_use_topk:
+                sae_features_t = self.sae.get_latents(sae_features)
+            h_hat = self.sae.decode(sae_features_t)
+            rec_loss = Masked_Normalized_MSE_loss(h, h_hat, assistant_masks)
+        elif self.sarm_train_mode==3 and not self.sae_use_sequence_level:
+            h_d = h.detach()
+            _, h_hat = self.sae(h_d)
+            rec_loss = Masked_Normalized_MSE_loss(h_d, h_hat, assistant_masks)        
+        elif self.sarm_train_mode==3 and self.sae_use_sequence_level:
+            h_d = h.detach()
+            sequence_lengths_t = sequence_lengths.view(-1,1,1)
+            last_token_mask = torch.zeros([h_d.shape[0] ,1 ,h_d.shape[1]], device=h_d.device)
+            last_token_mask.scatter_(-1, sequence_lengths_t, torch.ones_like(sequence_lengths_t, dtype=last_token_mask.dtype))
+            
+            # h_d -> (bs, seq_len, d), last_token_mask -> (bs, 1, seq_len)
+            h_d = torch.matmul(last_token_mask.to(h_d.dtype), h_d) 
+            
+            _, h_hat = self.sae(h_d)
+            rec_loss = Normalized_MSE_loss(h_d, h_hat)       
 
         pooled_logits = logits[torch.arange(batch_size, device=logits.device), sequence_lengths]
 
