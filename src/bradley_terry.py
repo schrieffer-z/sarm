@@ -1,4 +1,3 @@
-# 修改了/data/zhangsy/miniconda3/envs/sarm/lib/python3.10/site-packages/deepspeed/runtime/zero/stage3.py:1938
 ########################
 # This script is modified from the TRL package https://github.com/huggingface/trl/blob/main/examples/research_projects/stack_llama/scripts/reward_modeling.py
 # This script is designed for the reward modeling with Mistral model which should be handled carefully because it does not have an official pad token
@@ -44,6 +43,10 @@ class ScriptArguments:
         default=None,
         metadata={"help": "the sae path to be merged in .safetensors(name of sae_path(e.g. _Latent16384_Layer8_K144) will be used to parse LatentSize and HiddenStateSourceLayer)."}
     )
+    sae_use_sequence_level: Optional[bool] = field(
+        default=False,
+        metadata={"help": "whether or not to use sequence level in sae"}
+    )
     sarm_train_mode: Optional[int] = field(
         default=None,
         metadata={
@@ -64,10 +67,6 @@ class ScriptArguments:
     sarm_use_topk: Optional[bool] = field(
         default=False,
         metadata={"help": "whether or not to use top k in rm"}
-    )
-    sarm_aggregate_latents: Optional[bool] = field(
-        default=False,
-        metadata={"help": "whether or not to aggregate latents"}
     )
     sarm_base_model: Optional[str] = field(
         default=None,
@@ -258,12 +257,13 @@ def parse_sae_params(filename):
         "sae_latent_size": int(match.group(1)),
         "sae_hidden_state_source_layer": int(match.group(2)),
         "sae_k": int(match.group(3)),
+        "sae_use_sequence_level": script_args.sae_use_sequence_level,
         'sarm_use_topk': script_args.sarm_use_topk,
-        'sarm_aggregate_latents': script_args.sarm_aggregate_latents,
         'sarm_train_mode': script_args.sarm_train_mode
     }
     if script_args.sarm_use_baseline: 
         ret.pop('sae_k')
+        ret.pop('sae_use_sequence_level')
         ret.pop('sarm_use_topk')
     return ret
 

@@ -1,4 +1,3 @@
-# 修改了/data/zhangsy/miniconda3/envs/sarm/lib/python3.10/site-packages/deepspeed/runtime/zero/stage3.py:1938
 ########################
 # This script is modified from the TRL package https://github.com/huggingface/trl/blob/main/examples/research_projects/stack_llama/scripts/reward_modeling.py
 # This script is designed for the reward modeling with Mistral model which should be handled carefully because it does not have an official pad token
@@ -185,19 +184,10 @@ output_name = script_args.output_path
 def build_dataset(tokenizer, train_path, eval_path):
 
     def tokenize(sample):
-        chosen = sample['context'] + [{
-            'role': 'assistant',
-            'content': sample['response2'] if sample['overall_preference']>=0 else sample['response1']
-        }]
-        rejected = sample['context'] + [{
-            'role': 'assistant',
-            'content': sample['response1'] if sample['overall_preference']>=0 else sample['response2']
-        }]
-
-        sample['positive'] = tokenizer.apply_chat_template(chosen, tokenize=False, add_generation_prompt=False)
+        sample['positive'] = tokenizer.apply_chat_template(sample['chosen'], tokenize=False, add_generation_prompt=False)
         if tokenizer.bos_token!=None:
             sample['positive']=sample['positive'].replace(tokenizer.bos_token, "")
-        sample['negative'] = tokenizer.apply_chat_template(rejected, tokenize=False, add_generation_prompt=False)
+        sample['negative'] = tokenizer.apply_chat_template(sample['rejected'], tokenize=False, add_generation_prompt=False)
         if tokenizer.bos_token!=None:
             sample['negative']=sample['negative'].replace(tokenizer.bos_token, "")
 
@@ -209,10 +199,9 @@ def build_dataset(tokenizer, train_path, eval_path):
         sample["input_ids_k"] = tokenized_neg["input_ids"]
         sample["attention_mask_k"] = tokenized_neg["attention_mask"]
         sample["assistant_masks_k"] = get_last_assistant_masks(tokenized_neg["input_ids"])
-        sample["m"] = abs(sample['overall_preference'])
         return sample
 
-    ds = load_dataset('json', data_files=train_path)['train'].shuffle(seed=42)
+    ds = load_dataset('parquet', data_files=train_path)['train'].shuffle(seed=42)
     ds = ds.map(tokenize, num_proc=8)
 
     eval_dataset = None
@@ -427,7 +416,6 @@ class RewardDataCollatorWithPadding:
             "input_ids": batch["input_ids"],
             "attention_mask": batch["attention_mask"],
             "assistant_masks": batch_for_assistant_masks["attention_mask"],
-            "m": [feature['m'] for feature in features],
             "return_loss": True,
         }
         return batch
@@ -443,6 +431,8 @@ def compute_metrics(eval_pred):
         pos_predictions_scores > neg_predictions_scores) / len(pos_predictions_scores)
     return result
 
+g_miu = None
+g_sigma = None
 sarm_rec_lambda=script_args.sarm_rec_lambda
 sarm_train_mode=script_args.sarm_train_mode
 class RewardTrainer(Trainer):
@@ -456,8 +446,27 @@ class RewardTrainer(Trainer):
         kidx = jidx + 1
         rewards_j = rewards[jidx]
         rewards_k = rewards[kidx]
-        loss =  nn.functional.logsigmoid(rewards_j - rewards_k) * torch.tensor(inputs['m'], device=rewards.device).view(rewards_j.shape)
-        loss = -loss.mean()
+        Mi = rewards_j - rewards_k
+
+        # gather Mi from n gpus
+        world_size = torch.distributed.get_world_size()
+        all_Mi = [torch.zeros_like(Mi) for _ in range(world_size)]
+        torch.distributed.all_gather(all_Mi, Mi)
+        all_Mi = torch.concatenate(all_Mi).detach().view(-1)
+        miu_i, sigma_i = all_Mi.mean(), all_Mi.var()
+
+        global g_miu, g_sigma
+        if g_miu==None and g_sigma==None:
+            g_miu, g_sigma = miu_i, sigma_i
+        else:
+            g_miu = 0.9 * g_miu + 0.1 * miu_i
+            g_sigma = 0.9 * g_sigma + 0.1 * sigma_i
+        
+        # Compute beta & pho
+        beta_used = (1 + alpha * (miu_i - g_miu))
+        beta_used = beta_used.clamp(min=1e-3)
+
+        loss = -beta_used * nn.functional.logsigmoid(Mi).mean()
         global sarm_train_mode, sarm_rec_lambda
         if sarm_train_mode==2 or sarm_train_mode==3:
             loss += sarm_rec_lambda * output['loss']
@@ -465,67 +474,6 @@ class RewardTrainer(Trainer):
         if return_outputs:
             return loss, {"rewards_j": rewards_j, "rewards_k": rewards_k}
         return loss
-
-
-    def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
-        """
-        Perform a training step on a batch of inputs.
-
-        Subclass and override to inject custom behavior.
-
-        Args:
-            model (`nn.Module`):
-                The model to train.
-            inputs (`Dict[str, Union[torch.Tensor, Any]]`):
-                The inputs and targets of the model.
-
-                The dictionary will be unpacked before being fed to the model. Most models expect the targets under the
-                argument `labels`. Check your model's documentation for all accepted arguments.
-
-        Return:
-            `torch.Tensor`: The tensor with training loss on this batch.
-        """
-        model.train()
-        inputs = self._prepare_inputs(inputs)
-        if is_sagemaker_mp_enabled():
-            loss_mb = smp_forward_backward(model, inputs, self.args.gradient_accumulation_steps)
-            return loss_mb.reduce_mean().detach().to(self.args.device)
-
-        with self.compute_loss_context_manager():
-            loss = self.compute_loss(model, inputs)
-
-        del inputs
-        if (
-            self.args.torch_empty_cache_steps is not None
-            and self.state.global_step % self.args.torch_empty_cache_steps == 0
-        ):
-            if is_xpu_available():
-                torch.xpu.empty_cache()
-            elif is_mlu_available():
-                torch.mlu.empty_cache()
-            elif is_npu_available():
-                torch.npu.empty_cache()
-            elif is_torch_version(">=", "2.0") and is_mps_available():
-                torch.mps.empty_cache()
-            else:
-                torch.cuda.empty_cache()
-
-        kwargs = {}
-
-        # For LOMO optimizers you need to explicitly use the learnign rate
-        if self.args.optim in [OptimizerNames.LOMO, OptimizerNames.ADALOMO]:
-            kwargs["learning_rate"] = self._get_learning_rate()
-
-        if self.args.n_gpu > 1:
-            loss = loss.mean()  # mean() to average on multi-gpu parallel training
-
-        if self.use_apex:
-            with amp.scale_loss(loss, self.optimizer) as scaled_loss:
-                scaled_loss.backward()
-        else:
-            self.accelerator.backward(loss, **kwargs)
-
-        return loss.detach() / self.args.gradient_accumulation_steps
 
 # Train the model, woohoo.
 trainer = RewardTrainer(

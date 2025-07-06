@@ -18,7 +18,7 @@ from transformers.models.llama.modeling_llama import (
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 
 # Local
-from .sae import TopkSAE, pre_process, Normalized_MSE_loss, Masked_Normalized_MSE_loss
+from sae import TopkSAE, pre_process, Normalized_MSE_loss, Masked_Normalized_MSE_loss
 
 
 logger = logging.get_logger(__name__)
@@ -319,8 +319,8 @@ class LlamaSARM(LlamaPreTrainedModel):
     def __init__(
             # Shuyi (sae init 传参)
             self, config, sae_hidden_state_source_layer, sae_latent_size, sae_k, 
+            sae_use_sequence_level=False,
             sarm_use_topk=False, 
-            sarm_aggregate_latents=False,
             sarm_train_mode=1
     ):
         super().__init__(config)
@@ -328,8 +328,8 @@ class LlamaSARM(LlamaPreTrainedModel):
         self.model = MyLlamaModel(config, hidden_state_source_layer=sae_hidden_state_source_layer)
         
         # Shuyi (SAE init)
+        self.sae_use_sequence_level = sae_use_sequence_level
         self.sarm_use_topk = sarm_use_topk
-        self.sarm_aggregate_latents = sarm_aggregate_latents
         self.sarm_train_mode = sarm_train_mode
 
         self.score = nn.Linear(sae_latent_size, self.num_labels, bias=False)
@@ -419,21 +419,29 @@ class LlamaSARM(LlamaPreTrainedModel):
         # Shuyi (联合训练)
         rec_loss = None
         if self.sarm_train_mode==2:
-            assert self.sarm_use_topk
-            h_hat = self.sae.decode(sae_features)
+            if not self.sarm_use_topk:
+                sae_features_t = self.sae.get_latents(sae_features)
+            h_hat = self.sae.decode(sae_features_t)
             rec_loss = Masked_Normalized_MSE_loss(h, h_hat, assistant_masks)
-        elif self.sarm_train_mode==3:
-            assert self.sarm_use_topk
+        elif self.sarm_train_mode==3 and not self.sae_use_sequence_level:
             h_d = h.detach()
             _, h_hat = self.sae(h_d)
             rec_loss = Masked_Normalized_MSE_loss(h_d, h_hat, assistant_masks)        
+        elif self.sarm_train_mode==3 and self.sae_use_sequence_level:
+            h_d = h.detach()
+            sequence_lengths_t = sequence_lengths.view(-1,1,1)
+            last_token_mask = torch.zeros([h_d.shape[0] ,1 ,h_d.shape[1]], device=h_d.device)
+            last_token_mask.scatter_(-1, sequence_lengths_t, torch.ones_like(sequence_lengths_t, dtype=last_token_mask.dtype))
+            
+            # h_d -> (bs, seq_len, d), last_token_mask -> (bs, 1, seq_len)
+            h_d = torch.matmul(last_token_mask.to(h_d.dtype), h_d) 
+            
+            _, h_hat = self.sae(h_d)
+            rec_loss = Normalized_MSE_loss(h_d, h_hat)       
+
 
         pooled_logits = logits[torch.arange(batch_size, device=logits.device), sequence_lengths]
 
-        if self.sarm_aggregate_latents:
-            assistant_masks = assistant_masks.to(torch.bfloat16).view(assistant_masks.shape[0], 1, assistant_masks.shape[-1])
-            sae_features = torch.matmul(assistant_masks, sae_features).squeeze(1)
-            pooled_logits = self.score(sae_features)
 
         loss = None
         if labels is not None:

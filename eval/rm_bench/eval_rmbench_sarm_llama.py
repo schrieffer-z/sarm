@@ -60,24 +60,20 @@ def parse_sarm_param(filename:str):
 
     assert "SARM" in filename or "Baseline" in filename 
     assert "TopK" in filename or "woTopK" in filename
-    assert "Aggregated" in filename or "LastToken" in filename
     sarm_use_baseline = "Baseline" in filename
     sarm_use_topk = "TopK" in filename
-    sarm_aggregate_latents = "Aggregated" in filename
 
     print(f"  SARM Parameters:  ".center(60, '='))
     print(f"Latent: {latent}")                
     print(f"Layer: {layer}")                  
     print(f"K: {k_value}")                    
     print(f"sarm_use_topk: {sarm_use_topk}")  
-    print(f"sarm_aggregate_latents: {sarm_aggregate_latents}")
 
     ret = {
         "sae_latent_size": latent,
         "sae_hidden_state_source_layer": layer,
         "sae_k": k_value,
         'sarm_use_topk': sarm_use_topk,
-        'sarm_aggregate_latents': sarm_aggregate_latents
     }
     if sarm_use_baseline: 
         ret.pop('sae_k')

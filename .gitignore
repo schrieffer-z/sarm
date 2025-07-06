@@ -181,3 +181,7 @@ alinks/
 a.py
 eval/judge_bench/outputs/
 eval/rm_bench/results
+
+*.parquet binary
+*.parquet -delta
+*.parquet -text
