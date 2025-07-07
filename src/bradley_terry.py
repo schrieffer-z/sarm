@@ -158,7 +158,7 @@ class ScriptArguments:
 
 parser = HfArgumentParser(ScriptArguments)
 script_args = parser.parse_args_into_dataclasses()[0]
-
+script_args.model_name = os.path.normpath(script_args.model_name)
 
 
 # Load the value-head model and tokenizer.
@@ -269,6 +269,10 @@ def parse_sae_params(filename):
 
 
 def merge_safetensor():
+    if not os.path.exists(script_args.model_name+'-SARM'):
+        import shutil
+        shutil.copytree(script_args.model_name, script_args.model_name+'-SARM')
+
     weight_map = None
     safetensors_name = None
     weight_map_path = os.path.join(script_args.model_name, 'model.safetensors.index.json')
