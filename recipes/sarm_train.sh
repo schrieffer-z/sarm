@@ -5,8 +5,8 @@ export NCCL_IB_DISABLE=1
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 config_name=deepspeed_zero3_4gpu.yaml
 
-# 1:2e-6
-learning_rate=4e-6
+# 2:1e-6
+learning_rate=2e-6
 per_device_train_batch_size=1
 num_train_epochs=3
 
