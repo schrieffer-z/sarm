@@ -18,7 +18,7 @@ from transformers.models.llama.modeling_llama import (
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 
 # Local
-from sae import TopkSAE, pre_process, Normalized_MSE_loss, Masked_Normalized_MSE_loss
+from .sae import TopkSAE, pre_process, Normalized_MSE_loss, Masked_Normalized_MSE_loss
 
 
 logger = logging.get_logger(__name__)
