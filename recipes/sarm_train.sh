@@ -51,7 +51,7 @@ accelerate launch \
     --num_train_epochs $num_train_epochs \
     --per_device_train_batch_size $per_device_train_batch_size \
     --train_set_path $train_set_path \
-    --sae_path $sae_path.pt \
+    --sae_path $sae_path \
     --sarm_base_model $sarm_base_model \
     --sae_use_sequence_level $sae_use_sequence_level \
     --sarm_use_baseline $sarm_use_baseline \
