@@ -77,6 +77,11 @@ class ScriptArguments:
         default=False,
         metadata={"help": "whether or not to use baseine"}
     )
+    # Resume Flag
+    resume: Optional[bool] = field(
+        default=False,
+        metadata={"help": "whether or not to resume from certain ckpt"}
+    )
 
     local_rank: Optional[int] = field(
         default=-1, metadata={"help": "Used for multi-gpu"})
@@ -336,14 +341,18 @@ if script_args.sarm_use_baseline:
         raise ValueError(f"Invalid base model type: {script_args.sarm_base_model}")
 elif script_args.sae_path is not None:
     sae_kwargs = parse_sae_params(script_args.sae_path)
-    merge_safetensor()
+    if not script_args.resume:
+        merge_safetensor()
+        loaded_model_path = script_args.model_name + "-SARM"
+    else:
+        loaded_model_path = script_args.model_name
     if script_args.sarm_base_model=='gemma2':
         model = Gemma2SARM.from_pretrained(
-            script_args.model_name+"-SARM", num_labels=1, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2", **sae_kwargs
+            loaded_model_path, num_labels=1, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2", **sae_kwargs
         )
     elif script_args.sarm_base_model=='llama':
         model = LlamaSARM.from_pretrained(
-            script_args.model_name+"-SARM", num_labels=1, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2", **sae_kwargs
+            loaded_model_path, num_labels=1, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2", **sae_kwargs
         )
     else:
         raise ValueError(f"Invalid base model type: {script_args.sarm_base_model}")
