@@ -3,6 +3,7 @@ import json
 import csv
 import argparse
 import re
+import pandas as pd
 from glob import glob
 
 def extract_checkpoint_number(checkpoint_name):
@@ -120,8 +121,19 @@ def aggregate_results(base_dir):
             # 计算三个 benchmark 的平均分
             if scores:
                 result["benchmark_average"] = sum(scores) / len(scores)
-            
-            all_results.append(result)
+
+            full_template = {
+                "benchmark_average": 0,
+                "judge_Coding": 0, "judge_Knowledge": 0, "judge_Math": 0, 
+                "judge_Overall": 0, "judge_Reasoning": 0,
+                "rm_total_avg_acc": 0, "rm_chat": 0, "rm_math": 0, "rm_code": 0, 
+                "rm_safety": 0, "rm_hard_acc": 0, "rm_normal_acc": 0, "rm_easy_acc": 0,
+                "reward_average": 0, "reward_Factuality": 0, "reward_Precise IF": 0,
+                "reward_Math": 0, "reward_Safety": 0, "reward_Focus": 0, "reward_Ties": 0
+            }
+            for key in result.keys():
+                full_template[key] = result[key]   
+            all_results.append(full_template)
             checkpoint_count += 1
             
         except Exception as e:
@@ -188,32 +200,58 @@ def calculate_and_add_overall_average(results, output_path):
     if not results:
         return {}
     
-    # 定义字段顺序（匹配 CSV 文件的顺序）
-    final_order = [
-        # Judge Bench
-        "judge_Overall", "judge_Knowledge", "judge_Reasoning", "judge_Math", "judge_Coding",
-        
-        # RM Bench
-        "rm_total_avg_acc", "rm_chat", "rm_math", "rm_code", "rm_safety","rm_hard_acc", "rm_normal_acc", "rm_easy_acc"
-        
-        # Reward Bench V2
-        "reward_average", "reward_Factuality", "reward_Precise IF", "reward_Math", "reward_Safety", "reward_Focus", "reward_Ties"
+    # 定义与 CSV 完全一致的字段顺序（包括 benchmark_average）
+    fixed_order = [
+        "benchmark_average", 
+        "judge_Overall",
+        "judge_Knowledge",
+        "judge_Reasoning",
+        "judge_Math",
+        "judge_Coding",
+        "rm_total_avg_acc",
+        "rm_chat",
+        "rm_math",
+        "rm_code",
+        "rm_safety",
+        "rm_hard_acc",
+        "rm_normal_acc",
+        "rm_easy_acc",
+        "reward_average",
+        "reward_Factuality",
+        "reward_Precise IF",
+        "reward_Math",
+        "reward_Safety",
+        "reward_Focus",
+        "reward_Ties"
     ]
     
-    # 获取列名集合
-    header_fields = ["checkpoint"] + final_order
+    # 获取 CSV 中的所有列名（除了checkpoint）
+    with open(output_path, "r") as csvfile:
+        reader = csv.DictReader(csvfile)
+        header_fields = reader.fieldnames
+        
+    # 确保顺序与 CSV 保持一致
+    columns_to_avg = [col for col in header_fields if col != "checkpoint"]
     
-    # 计算总体平均值
+    # 计算总体平均值（仅基于有效的checkpoint行）
     overall_avg = {}
-    for field in final_order:
-        if field in results[0]:
-            values = [res.get(field, 0) for res in results]
-            overall_avg[field] = sum(values) / len(values) if values else 0
+    for column in columns_to_avg:
+        # 收集所有有效值（跳过空值或无效行）
+        valid_values = []
+        for result in results:
+            if column in result and not pd.isna(result.get(column)):
+                valid_values.append(result[column])
+        
+        # 计算平均值（如果存在有效值）
+        if valid_values:
+            overall_avg[column] = sum(valid_values) / len(valid_values)
+        else:
+            overall_avg[column] = 0
     
-    # 准备要添加的行（只包含最终顺序中的字段）
+    # 准备要添加的行（确保顺序一致）
     avg_row = {"checkpoint": "Overall Average"}
-    for field in final_order:
-        avg_row[field] = overall_avg.get(field, "")
+    for column in columns_to_avg:
+        avg_row[column] = overall_avg.get(column, "")
     
     # 添加空行和平均值行到 CSV
     with open(output_path, "a", newline="") as csvfile:
@@ -221,9 +259,8 @@ def calculate_and_add_overall_average(results, output_path):
         writer.writerow({})  # 添加空行
         writer.writerow(avg_row)
     
-    print(f"已添加总体平均值到: {output_path}")
+    print(f"已添加正确的总体平均值到: {output_path}")
     return overall_avg
-
 
 def visualize_comparison(results, overall_avg, base_dir):
     """生成可视化分析图表（英文版）"""
