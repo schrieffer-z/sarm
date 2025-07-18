@@ -1,5 +1,6 @@
 import re
 import os
+import json
 import heapq
 import torch
 import torch.nn as nn
@@ -28,11 +29,12 @@ from sae import TopkSAE, pre_process, Normalized_MSE_loss, Masked_Normalized_MSE
 def build_arg_parser():
     """Return an ArgumentParser for *apply‑only* SAE pipeline."""
     p = argparse.ArgumentParser(
-        description="Apply a pretrained Sparse Auto‑Encoder (SAE) to a dataset and extract high‑activation contexts."
+        description="Apply a pretrained Sparse Auto‑Encoder (SAE) to a dataset and extract high-activation contexts."
     )
 
     # === Core model & SAE params ===
-    p.add_argument("--model_path", required=True, type=str, help="Path to backbone language‑model directory")
+    p.add_argument("--model_path", required=True, type=str, help="Path to backbone language-model directory")
+    p.add_argument("--tokenizer_path", required=True, type=str, help="Path to backbone language-model's tokenizer")
     p.add_argument("--hidden_size", required=True, type=int, help="Backbone LM hidden size (d_model)")
     p.add_argument("--latent_size", required=True, type=int, help="SAE latent dimension (m)")
     p.add_argument("--k", required=True, type=int, help="Top‑k used in TopKSAE")
@@ -56,6 +58,10 @@ def build_arg_parser():
                    help="Directory to save extracted context JSON (default: ../contexts)")
 
     return p
+
+def save_json(data, path):
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 class Preference(torch.utils.data.Dataset):
     def __init__(self, 
@@ -110,9 +116,7 @@ def create_dataloader(
     split_index: int=0,
     split_num: int=1,
 ) -> torch.utils.data.DataLoader:
-    if dataset_name=='corpus':
-        dataset = OpenWebText(folder_path, tokenizer, max_length, keyword)
-    elif 'preference' in dataset_name.lower():
+    if 'preference' in dataset_name.lower():
         dataset = Preference(folder_path, tokenizer, max_length, split_index, split_num)
     else:
         raise ValueError(f"Unsupported dataset: {dataset_name}")
@@ -308,13 +312,16 @@ class Applier:
         self.device = torch.device(cfg.device)
 
         sarm_params = parse_sarm_param(cfg.model_path)
-        tokenizer_title = cfg.model_path[:cfg.model_path.rfind('/')]
-        self.sarm_title = tokenizer_title[tokenizer_title.rfind('/')+1:]
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_title)
+        tokenizer_path = cfg.model_path[:cfg.model_path.rfind('/')]
+        self.sarm_title = tokenizer_path[tokenizer_path.rfind('/')+1:]
+        if self.cfg.tokenizer_path is None:
+            tokenizer_path = self.cfg.tokenizer_path
+        
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
         self.sarm = SARM4Latent.from_pretrained(
             cfg.model_path,
             torch_dtype=torch.bfloat16,
-            attn_implementation="flash_attention_2",
+            # attn_implementation="flash_attention_2",
             **sarm_params
         ).to(self.device)
         
