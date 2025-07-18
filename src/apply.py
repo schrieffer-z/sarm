@@ -72,6 +72,8 @@ class Preference(torch.utils.data.Dataset):
                  split_num: int,
         ):
         self.tokenizer = tokenizer
+        self.tokenizer.padding_side = 'left'
+        self.tokenizer.truncation_side = 'left'
         self.max_length = max_length
         self.pref_data_path = pref_data_path
         self.split_index = split_index
@@ -173,6 +175,25 @@ def save_latent_dict(latent_context_map, output_path, threshold, max_length, max
     save_json(output_data, output_path)
     return
 
+
+def get_last_assistant_masks(input_ids):
+    i=len(input_ids)-4
+    pos = 0
+    while i >= 0:
+        if input_ids[i:i+4].tolist() == [128006, 78191, 128007, 271]:
+            pos = i + 4
+            break
+        i -= 1
+    
+    assistant_masks = []
+    for i in range(len(input_ids)):
+        if i < pos:
+            assistant_masks.append(0)
+        else:
+            assistant_masks.append(1)
+
+    assert input_ids[-1]==128009
+    return pos, assistant_masks
 
 
 def parse_sarm_param(filename:str):
@@ -366,17 +387,16 @@ class Applier:
             batch_size, seq_len, _ = latents.shape
             positions = (latents > threshold)
 
-            position_ids = torch.arange(max_length, dtype=torch.long)
-            position_ids = position_ids * batch[1]
-            seq_len = torch.max(position_ids, dim=1).values
-
             for i in range(batch_size):
                 tokens = self.tokenizer.convert_ids_to_tokens(input_ids[i])
-                assert tokens[25] == '<|eot_id|>' # system message长度是固定值
+                st_pos, assistant_mask = get_last_assistant_masks(input_ids[i])
 
-                prev_pos = [26]
+                assert tokens[-1] == '<|eot_id|>' # system message长度是固定值
+                assert st_pos == 0 or tokens[st_pos-4 : st_pos] == ['<|start_header_id|>', 'assistant', '<|end_header_id|>', 'ĊĊ']
+
+                prev_pos = [st_pos]
                 latent_indices = torch.nonzero(positions[i], as_tuple=False)
-                for pos in range(26, seq_len[i]+1):
+                for pos in range(st_pos, input_ids.shape[-1]):
                     if input_ids[i][pos] not in sentence_enders_tokens:
                         continue
                     
