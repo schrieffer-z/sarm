@@ -358,20 +358,14 @@ class Applier:
         lines: int = 4,  
         output_path=None
     ):
-    # get_context 需要修改，仅针对特定的latents进行context提取。
-        title = f'_{threshold}_split-{self.cfg.split_index}-{self.cfg.split_num}.json'
-        if self.cfg.output_path is None:
-            output_path = os.path.join("../contexts/", title)
-        else:
-            output_path = os.path.join(self.cfg.output_path, title)
-
+        self.context_title = f'{self.sarm_title}_{self.cfg.dataset_name}_threshold{threshold}_split-{self.cfg.split_index+1}-{self.cfg.split_num}'
+        self.context_base_dir = self.cfg.output_path if self.cfg.output_path is not None else '../contexts/'
         
         self.dataloader = create_dataloader(self.cfg.dataset_name, self.cfg.data_path, self.tokenizer, self.cfg.batch_size, max_length, split_index=self.cfg.split_index, split_num=self.cfg.split_num)
         
         sentence_enders = [
-            '?',    '.',   ';',    '!',     "\"",
-            ' ?',   ' .',  ' ;',   ' !',    " \"",
-            '<|end_of_text|>',
+            '?',    '.',   ';',    '!',
+            ' ?',   ' .',  ' ;',   ' !',
             '<|eot_id|>' 
         ]
         sentence_enders_tokens = self.tokenizer.batch_encode_plus(sentence_enders, return_tensors='pt')['input_ids'][:,1].tolist()
@@ -426,8 +420,8 @@ class Applier:
                     prev_pos.append(pos + 1)
             save_ats = torch.linspace(0,len(self.dataloader),11).to(torch.int32)[1:]
             if (global_step_idx in save_ats):
-                base_t = os.path.join(self.cfg.output_path if self.cfg.output_path is not None else '../contexts/', 'tmp')
-                title_t = f'{os.path.splitext(os.path.basename(self.cfg.SAE_path))[0]}_{threshold}_split-{self.cfg.split_index}-{self.cfg.split_num}@step{global_step_idx}.json'
+                base_t = os.path.join(self.context_base_dir, 'tmp')
+                title_t = self.context_title + f'@step{global_step_idx}.json'
                 
                 os.makedirs(base_t, exist_ok=True)
                 output_path_tmp = os.path.join(base_t, title_t)
@@ -462,8 +456,8 @@ class Applier:
             'lines': lines,
             'latent_context_map': sorted_latent_context,
         }
-        save_json(output_data, output_path)
-        return total_latents, output_path
+
+        save_json(output_data, os.path.join(self.context_base_dir, self.context_title+'.json'))
 
 
 
@@ -489,8 +483,7 @@ def main():
 
     total_latents, save_path = applier.get_context(
         threshold=cfg.apply_threshold,
-        max_length=cfg.max_length,
-        output_path=None,   # let utils decide the filename based on cfg/output_path
+        max_length=cfg.max_length
     )
 
     print(f"[✓] Extracted contexts for {total_latents} latents & Saved at: {save_path}")
