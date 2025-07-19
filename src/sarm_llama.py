@@ -497,6 +497,7 @@ class LlamaBaseline(LlamaPreTrainedModel):
         self,
         input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
+        assistant_masks: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[Union[Cache, List[torch.FloatTensor]]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
