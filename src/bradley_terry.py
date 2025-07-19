@@ -252,6 +252,13 @@ def parse_sae_params(filename):
     """
     从SAE模型文件名中解析出sae_latent_size和sae_hidden_state_source_layer
     """
+    if script_args.sarm_use_baseline: 
+        pattern = r'Latent(\d+)_Layer(\d+)'
+        match = re.search(pattern, filename)
+        return {
+            "sae_latent_size": int(match.group(1)),
+            "sae_hidden_state_source_layer": int(match.group(2)),
+        }
     pattern = r'_Latent(\d+)_Layer(\d+)_K(\d+)_'
     match = re.search(pattern, filename)
     
@@ -270,6 +277,7 @@ def parse_sae_params(filename):
         ret.pop('sae_k')
         ret.pop('sae_use_sequence_level')
         ret.pop('sarm_use_topk')
+        ret.pop('sarm_train_mode')
     return ret
 
 
