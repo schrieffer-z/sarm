@@ -352,9 +352,9 @@ class Applier:
     @torch.no_grad()
     def get_context(
         self, 
-        threshold: float = 5.0, 
+        threshold: float = 3.0, 
         max_length: int = 1024, 
-        max_per_token: int = 1024, 
+        max_per_token: int = 128, 
         lines: int = 4,  
         output_path=None
     ):
