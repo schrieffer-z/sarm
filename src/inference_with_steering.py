@@ -1,15 +1,15 @@
 '''
 
 python src/inference_with_steering.py \
-    --steering_path steering.json \
-    --data_path data/16720/target.jsonl \
+    --steering_path steering_latents.json \
+    --data_path steering/16720/target.jsonl \
     --tokenizer_path models/Llama-3.1-8B-Instruct_sequence_Latent65536_Layer16_K192_1B-SARM-TopK-LastToken-1/   \
     --model_path models/Llama-3.1-8B-Instruct_sequence_Latent65536_Layer16_K192_1B-SARM-TopK-LastToken-1/checkpoint-150 \
     --sarm_base_model llama \
     --output_jsonl scored.jsonl \
     --device cuda:0
 
-steering.json:
+steering_latents.json:
 {
     "16720": ["*", 2], 
     "12222": ["*", 3],
