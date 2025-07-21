@@ -219,13 +219,13 @@ def main():
             if latent_score_map[latent]['score'] is None:
                 continue
 
-            
+            cnt_valid += 1
             if latent_score_map[latent]['score'] != 0:
                 cnt_none_zero += 1
-                cnt_pos += 1 if latent_score_map[latent]['score']>0 else 0
-                cnt_neg += 1 if latent_score_map[latent]['score']<0 else 0
+                cnt_pos += 1 if selected_latents[latent]>0 else 0
+                cnt_neg += 1 if selected_latents[latent]<0 else 0
             else:
-                cnt_valid += 1
+                continue
             if latent_score_map[latent]['score'] * selected_latents[latent] > 0:
                 cnt_correct += 1
                 if latent_score_map[latent]['score']>0:
@@ -238,12 +238,13 @@ def main():
                 debug_latent[latent] = latent_score_map[latent]
                 debug_latent[latent]['weight'] = selected_latents[latent]        
         
-        print(f"Non-Zero Ration: {cnt_none_zero / topk:.4f} ({cnt_none_zero}/{topk})")
+        print(f"Non-Zero Ration: {cnt_none_zero / (2*topk) :.4f} ({cnt_none_zero}/{topk*2})")
         print(f"Positive Score Ration: {cnt_pos}(Pos):{cnt_neg}(Neg)")
-        print(f"Cosistant Ration of Latents With Positive GPT Score:  ({cnt_pos_correct}/{cnt_pos})")
-        print(f"Cosistant Ration of Latents With Negative GPT Score:  ({cnt_neg_correct}/{cnt_neg})")
+        print(f"ACC of Latents With Positive Weight:  ({cnt_pos_correct}/{cnt_pos})")
+        print(f"ACC of Latents With Negative Weight:  ({cnt_neg_correct}/{cnt_neg})")
 
-        print(f"Cosistant Ratio: {cnt_correct / cnt_valid:.4f} ({cnt_correct}/{cnt_valid})")
+        print(f"ACC: { cnt_correct / cnt_none_zero :.4f} ({cnt_correct}/{cnt_none_zero})")
+        print("="*60)
         
         if topk == max(args.top_k_list):
             os.makedirs('interpret/debug',exist_ok=True)

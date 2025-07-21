@@ -335,7 +335,10 @@ class LlamaSARM(LlamaPreTrainedModel):
         self.score = nn.Linear(sae_latent_size, self.num_labels, bias=False)
         self.sae = TopkSAE(hidden_size=self.model.config.hidden_size, latent_size=sae_latent_size, k=sae_k)
 
-        if self.sarm_train_mode==1:
+        if self.sarm_train_mode==0:
+            for p in self.model.parameters():
+                p.requires_grad_(False)
+        if self.sarm_train_mode==0 or self.sarm_train_mode==1:
             for p in self.sae.parameters():
                 p.requires_grad_(False)
 
@@ -494,6 +497,7 @@ class LlamaBaseline(LlamaPreTrainedModel):
         self,
         input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
+        assistant_masks: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[Union[Cache, List[torch.FloatTensor]]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,

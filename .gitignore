@@ -188,6 +188,7 @@ eval/rm_bench/results
 /interpret/latent/*
 /*.pt
 /*.json
+/*.jsonl
 
 *.parquet binary
 *.parquet -delta
