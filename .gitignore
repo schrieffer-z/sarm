@@ -182,6 +182,13 @@ a.py
 eval/judge_bench/outputs/
 eval/rm_bench/results
 
+/interpret/contexts/*
+/interpret/backup/*
+/interpret/debug/*
+/interpret/latent/*
+/*.pt
+/*.json
+
 *.parquet binary
 *.parquet -delta
 *.parquet -text
