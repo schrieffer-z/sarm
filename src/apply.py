@@ -27,18 +27,13 @@ from sarm_llama import LlamaSARM
 from sae import TopkSAE, pre_process, Normalized_MSE_loss, Masked_Normalized_MSE_loss
 
 def build_arg_parser():
-    """Return an ArgumentParser for *apply‑only* SAE pipeline."""
     p = argparse.ArgumentParser(
         description="Apply a pretrained Sparse Auto‑Encoder (SAE) to a dataset and extract high-activation contexts."
     )
 
     # === Core model & SAE params ===
-    p.add_argument("--model_path", required=True, type=str, help="Path to backbone language-model directory")
-    p.add_argument("--tokenizer_path", required=True, type=str, help="Path to backbone language-model's tokenizer")
-    p.add_argument("--hidden_size", required=True, type=int, help="Backbone LM hidden size (d_model)")
-    p.add_argument("--latent_size", required=True, type=int, help="SAE latent dimension (m)")
-    p.add_argument("--k", required=True, type=int, help="Top‑k used in TopKSAE")
-    p.add_argument("--layer", required=True, type=int, help="LM layer index providing the residual stream (start from 1)")
+    p.add_argument("--model_path", required=True, type=str, help="Path to SARM directory")
+    p.add_argument("--tokenizer_path", required=True, type=str, help="Path to SARM's tokenizer")
 
     # === Dataset params ===
     p.add_argument("--dataset_name", required=True, type=str, help="Short name identifying the dataset kind (corpus / preference …)")
