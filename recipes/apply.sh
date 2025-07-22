@@ -6,7 +6,6 @@ do
   python src/apply.py \
     --model_path ... \
     --tokenizer_path ... \
-    --hidden_size 4096 --latent_size 65536 --k 192 --layer 16 \
     --dataset_name skyworkpreference \
     --data_path ... \
     --batch_size 4 --max_length 1024 \
