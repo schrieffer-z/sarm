@@ -6,7 +6,7 @@ python src/inference_with_steering.py \
     --tokenizer_path models/Llama-3.1-8B-Instruct_sequence_Latent65536_Layer16_K192_1B-SARM-TopK-LastToken-1/   \
     --model_path models/Llama-3.1-8B-Instruct_sequence_Latent65536_Layer16_K192_1B-SARM-TopK-LastToken-1/checkpoint-150 \
     --sarm_base_model llama \
-    --output_jsonl scored.jsonl \
+    --output_json scored.jsonl \
     --device cuda:0
 
 steering_latents.json:
@@ -27,8 +27,9 @@ import torch.nn as nn
 import numpy as np, matplotlib.pyplot as plt
 from scipy.stats import gaussian_kde
 from tqdm import tqdm
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from collections import defaultdict
 from transformers.cache_utils import Cache
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from transformers.modeling_outputs import SequenceClassifierOutputWithPast
 
 from sae import pre_process
@@ -79,12 +80,9 @@ class LlamaSARM4Steering(LlamaSARM):
         # Shuyi
         h, _, _ = pre_process(hidden_states)
         sae_features = self.sae.pre_acts(h)
-        sae_features_steering = sae_features
         if self.sarm_use_topk:
             sae_features = self.sae.get_latents(sae_features)
         if steering is not None:
-            k = sae_features_steering
-            sae_features_steering = self.sae.get_latents(sae_features_steering)
             for latent in steering.keys():
                 action, val = steering[latent]
                 if action == '+':
@@ -93,6 +91,7 @@ class LlamaSARM4Steering(LlamaSARM):
                     sae_features[:, :, latent] += sae_features[:, :, latent]*(val-1)
                 else:
                     raise ValueError(f'unsupported action {action}')
+                activated_masks[latent] = (sae_features[0, :, latent]!=0).to(torch.bfloat16)
 
         logits = self.score(sae_features)
 
@@ -187,6 +186,33 @@ def build_conv(tok, q: str, a: str, max_len: int, device):
     return tok(text, truncation=True, max_length=max_len,
                return_tensors="pt").to(device)
 
+def decode_with_highlight(input_ids, mask, tokenizer):
+    if isinstance(input_ids, torch.Tensor):
+        input_ids = input_ids.tolist()
+    if isinstance(mask, torch.Tensor):
+        mask = mask.tolist()
+    assert len(input_ids) == len(mask)
+
+    tokens = tokenizer.convert_ids_to_tokens(input_ids, skip_special_tokens=False)
+
+    # 1️⃣ 先把要包裹的 token 换成占位符
+    for i, m in enumerate(mask):
+        if m == 1:
+            tokens[i] = f"<<ACT>>{tokens[i]}<<END>>"
+
+    text = tokenizer.convert_tokens_to_string(tokens)
+
+    # 2️⃣ “<<ACT>>…<<END>>” → activated{…} 并把前导空格挪出去
+    def _fix(match: re.Match):
+        tok = match.group(1)
+        # 捕获所有前置空格（包括普通空格和 NBSP）
+        leading_ws = re.match(r'\s*', tok).group(0)
+        tok_core   = tok[len(leading_ws):]
+        return f"{leading_ws}activated{{{tok_core}}}"
+
+    text = re.sub(r"<<ACT>>(.*?)<<END>>", _fix, text)
+    return text
+
 def plot_kde(before: List[float], after: List[float], out_path: str):
     xs = np.linspace(min(before+after), max(before+after), 512)
     kde_b, kde_a = gaussian_kde(before)(xs), gaussian_kde(after)(xs)
@@ -213,7 +239,7 @@ def main():
     p.add_argument("--steering_path",  required=True,
                    help="JSON file: {latent_id:[action,val], …}")
     p.add_argument("--max_length", type=int, default=4096)
-    p.add_argument("--output_jsonl", default="scored_steering.jsonl")
+    p.add_argument("--output_path", default="scored_steering.json")
     p.add_argument("--plot_path",     default="reward_steering.png")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = p.parse_args()
@@ -231,6 +257,8 @@ def main():
     else:
         raise ValueError(f'Unsupport model type {args.sarm_base_model}')
     sarm_param = parse_sarm_param(args.model_path)
+    # Steering work exclusively with TopK
+    assert sarm_param['sarm_use_topk']
     model = Model.from_pretrained(
         args.model_path, torch_dtype=torch.bfloat16, **sarm_param
     ).to(args.device).eval()
@@ -242,23 +270,48 @@ def main():
     steer_before = {k: [v[0], 1.0] for k, v in steer_after.items()}
 
     def score(q, a, steer):
+        global activated_masks
+        activated_masks = defaultdict()
         enc = build_conv(tok, q, a, args.max_length, args.device)
-        return model(**enc, steering=steer)["logits"].item()
+        reward_val = model(**enc, steering=steer)["logits"].item()
+        latent_activated_text_dict = dict()
+        for latent, activated_mask in activated_masks.items():
+            assert enc['input_ids'][0][26]== 128009 # <|eoi_id|>
+            latent_activated_text_dict.update({
+                latent: decode_with_highlight(enc['input_ids'][0][27:], activated_mask[27:], tok)
+            })
+        return reward_val, latent_activated_text_dict
 
     # ---------- 逐条计算 ----------
     before_scores, after_scores = [], []
-    out_jsonl = Path(args.output_jsonl).resolve().open("w", encoding="utf-8")
-
+    out_json = dict()
     for row in tqdm(stream_jsonl(Path(args.data_path)), desc="Scoring"):
         q, a = row["question"], row["answer"]
-        s_b = score(q, a, steer_before)
-        s_a = score(q, a, steer_after)
+        s_b, latentdict_b = score(q, a, steer_before)
+        s_a, latentdict_a = score(q, a, steer_after)
+        latentdict_b
         before_scores.append(s_b); after_scores.append(s_a)
-        row.update({"reward_before": s_b, "reward_after": s_a})
-        out_jsonl.write(json.dumps(row, ensure_ascii=False)+"\n")
-    out_jsonl.close()
-    print("✓ scored jsonl →", args.output_jsonl)
 
+        elem = {
+            row["question_id"] : {
+                'question': row["question"],
+                'answer': row["answer"],
+                "reward": s_b,
+                "reward_steered": s_a,
+            }
+        }
+        all_latents = list(steer_before.keys())
+        for latent in all_latents:
+            elem[row["question_id"]].update({
+                f"#{latent}":{
+                    "text_before": latentdict_b[latent],
+                    "text_after": latentdict_a[latent],
+                }
+            })
+        out_json.update(elem)
+    
+    with open(args.output_path, 'w', encoding='utf-8') as f:
+        json.dump(out_json, f, ensure_ascii=False, indent=4)
     # ---------- 绘图 ----------
     plot_kde(before_scores, after_scores, args.plot_path)
     print("✓ plot saved   →", args.plot_path)
