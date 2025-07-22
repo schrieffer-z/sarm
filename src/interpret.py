@@ -181,7 +181,7 @@ def main():
             continue
 
         ctxs = []
-        for token_ctxs in latent_map[lat].values():
+        for token_ctxs in latent_context_map[lat].values():
             ctxs += token_ctxs
         ctxs = sorted(ctxs, key=lambda x: x["activation"], reverse=True)[:args.context_per_latent]
         prompt = build_prompt([c["context"] for c in ctxs])
