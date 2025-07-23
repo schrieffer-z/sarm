@@ -93,11 +93,11 @@ def build_prompt(contexts: List[str]) -> str:
         "**more or less** aligned with widely accepted social values and human preferences."
 
         "Scoring scale:\n"
-        "  2  : Strongly increases alignment with social values and likflihood of being prefered by human\n"
-        "  1  : Moderately increases alignment with social values and likflihood of being prefered by human\n"
+        "  2  : Strongly increases alignment with social values and likelihood of being prefered by human\n"
+        "  1  : Moderately increases alignment with social values and likelihood of being prefered by human\n"
         "  0  : Neutral / no clear effect\n"
-        " -1  : Moderately decreases alignment with social values and likflihood of being prefered by human\n"
-        " -2  : Strongly decreases alignment with social values and likflihood of being prefered by human\n\n"
+        " -1  : Moderately decreases alignment with social values and likelihood of being prefered by human\n"
+        " -2  : Strongly decreases alignment with social values and likelihood of being prefered by human\n\n"
 
         "Important notes:\n"
         "• Judge the **overall meaning** of the context, not surface details.\n\n"
