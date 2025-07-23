@@ -172,7 +172,7 @@ def main():
     p.add_argument("--tokenizer_path", type=str, required=False)
     p.add_argument("--model_path", type=str, required=True)
 
-    p.add_argument("--output_file", type=str, required=True)
+    p.add_argument("--output_file", type=str)
     p.add_argument("--max_length", type=int, default=4096)
 
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -203,6 +203,7 @@ def main():
     with open(args.data_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     s = None
+    c, j = torch.zeros(sarm_param['sae_latent_size']), torch.zeros(sarm_param['sae_latent_size'])
     for row in tqdm(data, desc="Scoring"):
         question, chosens, rejecteds = row["prompt"], row["chosen"], row["rejected"]
         latent_c_all = None
@@ -214,10 +215,10 @@ def main():
         for rejected in rejecteds:
             _, latent_j = score(question, rejected)
             latent_j_all = latent_j if latent_j_all is None else latent_j_all + latent_j
+        c += latent_c_all.squeeze().cpu()
+        j += latent_j_all.squeeze().cpu()
+    s = (c-j)/(c+j+(c+j).mean())
 
-        C = (latent_c_all + latent_j_all).mean()
-        s_i = (latent_c_all - latent_j_all) / (latent_c_all + latent_j_all + C)
-        s = s_i if s is None else s+s_i
     torch.save(s, 's.pt' if args.output_file is None else args.output_file)
 
 
