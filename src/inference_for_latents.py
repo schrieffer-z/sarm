@@ -200,23 +200,20 @@ def main():
         return ret
 
     # ---------- 逐条计算 ----------
-    with open(args.data_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    def stream_jsonl(path: Path):
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    yield json.loads(line)
     s = None
     c, j = torch.zeros(sarm_param['sae_latent_size']), torch.zeros(sarm_param['sae_latent_size'])
-    for row in tqdm(data, desc="Scoring"):
-        question, chosens, rejecteds = row["prompt"], row["chosen"], row["rejected"]
-        latent_c_all = None
-        for chosen in chosens:
-            _, latent_c = score(question, chosen)
-            latent_c_all = latent_c if latent_c_all is None else latent_c_all + latent_c
-        
-        latent_j_all = None
-        for rejected in rejecteds:
-            _, latent_j = score(question, rejected)
-            latent_j_all = latent_j if latent_j_all is None else latent_j_all + latent_j
-        c += latent_c_all.squeeze().cpu()
-        j += latent_j_all.squeeze().cpu()
+    for row in tqdm(stream_jsonl(Path(args.data_path)), desc="Scoring"):
+        question, chosen, rejected = row["prompt"], row["chosen"], row["rejected"]
+        _, latent_c = score(question, chosen)
+        _, latent_j = score(question, rejected)
+
+        c += latent_c.squeeze().cpu()
+        j += latent_j.squeeze().cpu()
     s = (c-j)/(c+j+(c+j).mean())
 
     torch.save(s, 's.pt' if args.output_file is None else args.output_file)
