@@ -289,7 +289,7 @@ def main():
         q, a = row["question"], row["answer"]
         s_b, latentdict_b = score(q, a, steer_before)
         s_a, latentdict_a = score(q, a, steer_after)
-        latentdict_b
+        
         before_scores.append(s_b); after_scores.append(s_a)
 
         elem = {

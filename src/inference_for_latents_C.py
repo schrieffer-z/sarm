@@ -214,7 +214,7 @@ def main():
 
         c += latent_c.squeeze().cpu()
         j += latent_j.squeeze().cpu()
-    s = (c-j)/(c+j+(c+j).mean())
+    s = (c+j)
 
     torch.save(s, 's.pt' if args.output_file is None else args.output_file)
 
