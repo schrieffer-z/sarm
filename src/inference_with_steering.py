@@ -310,6 +310,7 @@ def main():
             })
         out_json.update(elem)
     
+    os.makedirs(args.output_path, exist_ok=True)
     with open(args.output_path, 'w', encoding='utf-8') as f:
         json.dump(out_json, f, ensure_ascii=False, indent=4)
     # ---------- 绘图 ----------
