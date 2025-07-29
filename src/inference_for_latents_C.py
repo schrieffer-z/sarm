@@ -34,7 +34,7 @@ class LlamaSARM4Latent(LlamaSARM):
         self,
         input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
-        # Shuyi (aggregate latent)
+        # aggregate latent
         assistant_masks: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[Union[Cache, List[torch.FloatTensor]]] = None,
@@ -67,7 +67,6 @@ class LlamaSARM4Latent(LlamaSARM):
         hidden_states = transformer_outputs[0]
 
 
-        # Shuyi
         h, _, _ = pre_process(hidden_states)
         sae_features = self.sae.pre_acts(h)
         if self.sarm_use_topk:
@@ -94,10 +93,10 @@ class LlamaSARM4Latent(LlamaSARM):
                 sequence_lengths = sequence_lengths.to(logits.device)
             else:
                 sequence_lengths = -1
-        # Shuyi (查看last_token是否为<|eot_id|>)
+        # ensure last_token is <|eot_id|>
         assert ((input_ids[torch.arange(batch_size, device=logits.device), sequence_lengths]!=torch.ones(batch_size, device=logits.device)*128009).sum() == 0).item()
         
-        # Shuyi (联合训练)
+        # joint training
         rec_loss = None
         if self.sarm_train_mode==2:
             if not self.sarm_use_topk:
@@ -199,7 +198,6 @@ def main():
             ret = model(**enc)
         return ret
 
-    # ---------- 逐条计算 ----------
     def stream_jsonl(path: Path):
         with path.open("r", encoding="utf-8") as f:
             for line in f:

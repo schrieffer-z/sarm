@@ -33,11 +33,10 @@ class MyGemma2Model(Gemma2PreTrainedModel):
     def __init__(
             self, 
             config: Gemma2Config,
-            # Shuyi (需要在参数里传一个hidden state的层数)
             hidden_state_source_layer: int=None
     ):
         if hidden_state_source_layer==None:
-            # 默认选择1/2处
+            # default half
             hidden_state_source_layer = int(config.num_hidden_layers/2)
         
         super().__init__(config)
@@ -45,7 +44,6 @@ class MyGemma2Model(Gemma2PreTrainedModel):
         self.vocab_size = config.vocab_size
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
-        # Shuyi(之后的layer也不会参与运算，自然也不会被更新，干脆直接不加入self的attributes中即可)
         self.layers = nn.ModuleList(
             [Gemma2DecoderLayer(config, layer_idx) for layer_idx in range(hidden_state_source_layer)]
         )
@@ -148,7 +146,6 @@ class MyGemma2Model(Gemma2PreTrainedModel):
             if output_attentions:
                 all_self_attns += (layer_outputs[1],)
 
-        # Shuyi(最后不需要预测tokens，因此不经过norm)
         # hidden_states = self.norm(hidden_states)
 
         # add hidden states from the last decoder layer
@@ -217,7 +214,6 @@ class MyGemma2Model(Gemma2PreTrainedModel):
 
 class Gemma2SARM(Gemma2PreTrainedModel):
     def __init__(
-            # Shuyi (sae init 传参)
             self, config, sae_hidden_state_source_layer, sae_latent_size, sae_k, 
             sae_use_sequence_level=False,
             sarm_use_topk=False, 
@@ -227,7 +223,6 @@ class Gemma2SARM(Gemma2PreTrainedModel):
         self.num_labels = config.num_labels
         self.model = MyGemma2Model(config, sae_hidden_state_source_layer)
         
-        # Shuyi (SAE init)
         self.sae_use_sequence_level = sae_use_sequence_level
         self.sarm_use_topk = sarm_use_topk
         self.sarm_train_mode = sarm_train_mode
@@ -282,7 +277,6 @@ class Gemma2SARM(Gemma2PreTrainedModel):
         )
         hidden_states = transformer_outputs[0]
         
-        # Shuyi
         h, _, _ = pre_process(hidden_states)
         sae_features = self.sae.pre_acts(h)
         if self.sarm_use_topk:
@@ -308,10 +302,10 @@ class Gemma2SARM(Gemma2PreTrainedModel):
             else:
                 sequence_lengths = -1
 
-        # Shuyi (查看last_token是否为<|eot_id|>)
+        # ensure last_token is <|eot_id|>
         assert ((input_ids[torch.arange(batch_size, device=logits.device), sequence_lengths]!=torch.ones(batch_size, device=logits.device)*128009).sum() == 0).item()
         
-        # Shuyi (联合训练)
+        # joint training
         rec_loss = None
         if self.sarm_train_mode==2:
             if not self.sarm_use_topk:
@@ -379,7 +373,7 @@ class Gemma2Baseline(Gemma2PreTrainedModel):
         self.num_labels = config.num_labels
         self.model = MyGemma2Model(config, sae_hidden_state_source_layer)
 
-        # Shuyi (param-num-equal MLP init)
+        # param-num-equal MLP init
         self.untrained_sae_encoder = nn.Linear(self.model.config.hidden_size, sae_latent_size)
         self.score = nn.Linear(sae_latent_size, self.num_labels, bias=False)
 

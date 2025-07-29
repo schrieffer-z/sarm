@@ -257,7 +257,6 @@ class SARM4Latent(LlamaSARM):
         hidden_states = transformer_outputs[0]
 
 
-        # Shuyi
         h, _, _ = pre_process(hidden_states)
         sae_features = self.sae.pre_acts(h)
         latents_output = self.sae.get_latents(sae_features)
@@ -284,10 +283,10 @@ class SARM4Latent(LlamaSARM):
                 sequence_lengths = sequence_lengths.to(logits.device)
             else:
                 sequence_lengths = -1
-        # Shuyi (查看last_token是否为<|eot_id|>)
+        # ensure the last_token is <|eot_id|>
         assert ((input_ids[torch.arange(batch_size, device=logits.device), sequence_lengths]!=torch.ones(batch_size, device=logits.device)*128009).sum() == 0).item()
         
-        # Shuyi (联合训练)
+        # joint training
         rec_loss = None
         if self.sarm_train_mode==2:
             if not self.sarm_use_topk:
@@ -380,7 +379,7 @@ class Applier:
                 tokens = self.tokenizer.convert_ids_to_tokens(input_ids[i])
                 st_pos, assistant_mask = get_last_assistant_masks(input_ids[i])
 
-                assert tokens[-1] == '<|eot_id|>' # system message长度是固定值
+                assert tokens[-1] == '<|eot_id|>'
                 assert st_pos == 0 or tokens[st_pos-4 : st_pos] == ['<|start_header_id|>', 'assistant', '<|end_header_id|>', 'ĊĊ']
 
                 prev_pos = [st_pos]

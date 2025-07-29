@@ -1,30 +1,8 @@
-#!/usr/bin/env python3
-# merge_contexts.py
-"""
-合并多份 latent_context_map-JSON
-
-功能
-----
-* 多文件合并：latent ⟶ token ⟶ context 不重复
-* 若同一 context 出现多次，仅保留 activation 更高的记录
-* 过滤：activation > threshold 且每 (latent, token) 至少 `lines` 条
-* 每个 token 至多保留 `max_per_token` 条激活最高的 context
-* 自动重算 total_latents，其他元数据直接沿用
-
-用法
-----
-python merge_contexts.py \
-  --lines 10 --threshold 10 --max_per_token 256 \
-  --output merged.json \
-  split1.json split2.json split3.json ...
-"""
-
 import argparse, json, pathlib
 from collections import defaultdict
 from tqdm import tqdm
 
 
-# ----------------- 核心合并逻辑 -----------------
 def merge_json_files(file_paths, lines, threshold, max_per_token):
     merged_map = defaultdict(lambda: defaultdict(list))
     context_check = defaultdict(lambda: defaultdict(dict)) 
@@ -72,14 +50,13 @@ def merge_json_files(file_paths, lines, threshold, max_per_token):
     return result
 
 
-# ----------------- CLI -----------------
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--lines",            type=int, default=10,   help="每 (latent,token) 至少保留多少条")
-    ap.add_argument("--threshold",        type=float, default=5, help="activation > threshold 才保留")
-    ap.add_argument("--max_per_token",    type=int, default=256,  help="每 token 最多保留多少条")
-    ap.add_argument("--output",           required=True, help="输出 JSON 路径")
-    ap.add_argument("files", nargs="+", help="待合并的 JSON 文件")
+    ap.add_argument("--lines",            type=int, default=10,   help="least number of contexts (latent,token) ")
+    ap.add_argument("--threshold",        type=float, default=5, help="activation's threshold ")
+    ap.add_argument("--max_per_token",    type=int, default=256,  help="max number of contexts to keep")
+    ap.add_argument("--output",           required=True, help="output path of JSON")
+    ap.add_argument("files", nargs="+", help="input files in JSON")
     args = ap.parse_args()
 
     result = merge_json_files(

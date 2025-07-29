@@ -23,27 +23,23 @@ from sae import TopkSAE, pre_process, Normalized_MSE_loss, Masked_Normalized_MSE
 
 logger = logging.get_logger(__name__)
 #==========================================================================================================================================================================
-#===========================           MyLlama(不使用LlamaModel.__init__，直接修改__init__, forward的方式以适应sae的输入)                ========================================
 #==========================================================================================================================================================================
 class MyLlamaModel(LlamaPreTrainedModel):
     def __init__(
             self, 
             config: LlamaConfig, 
-            # Shuyi (需要在参数里传一个hidden state的层数)
             hidden_state_source_layer: int=None
     ):
         if hidden_state_source_layer==None:
-            # 默认选择1/2处
+            # default 1/2
             hidden_state_source_layer = int(config.num_hidden_layers/2)
             
         super().__init__(config)
-        # Shuyi
         self.hidden_state_source_layer = hidden_state_source_layer
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
-        # Shuyi(之后的layer也不会参与运算，自然也不会被更新，干脆直接不加入self的attributes中即可)
         self.layers = nn.ModuleList(
             [LlamaDecoderLayer(config, layer_idx) for layer_idx in range(hidden_state_source_layer)]
         )
@@ -166,7 +162,6 @@ class MyLlamaModel(LlamaPreTrainedModel):
             if output_attentions:
                 all_self_attns += (layer_outputs[1],)
 
-        # Shuyi(不用于language model，要的是最后一个decoder layer的output)
         # hidden_states = self.norm(hidden_states)
 
         # add hidden states from the last decoder layer

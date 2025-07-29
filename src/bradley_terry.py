@@ -1,8 +1,3 @@
-########################
-# This script is modified from the TRL package https://github.com/huggingface/trl/blob/main/examples/research_projects/stack_llama/scripts/reward_modeling.py
-# This script is designed for the reward modeling with Mistral model which should be handled carefully because it does not have an official pad token
-# If you have any question, feel free to send me an email via wx13@illinois.edu
-########################
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
@@ -38,7 +33,8 @@ class ScriptArguments:
     """
     These arguments vary depending on how many GPUs you have, what their capacity and features are, and what size model you want to train.
     """
-    # SAE config从SAE模型文件名中解析出sae_latent_size和sae_hidden_state_source_layer
+    # SAE config
+    # prase sae_latent_size and sae_hidden_state_source_layer from sae_path
     sae_path: Optional[str] = field(
         default=None,
         metadata={"help": "the sae path to be merged in .safetensors(name of sae_path(e.g. _Latent16384_Layer8_K144) will be used to parse LatentSize and HiddenStateSourceLayer)."}
@@ -315,7 +311,7 @@ def merge_safetensor():
     
 
     target_path = script_args.model_name+"-SARM"
-    # 修改model.safetensors.index.json的映射
+    # fix model.safetensors.index.json
     if weight_map is not None:
         for param_name in x.keys():
             weight_map["weight_map"].update({

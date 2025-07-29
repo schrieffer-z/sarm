@@ -7,26 +7,23 @@ import pandas as pd
 from glob import glob
 
 def extract_checkpoint_number(checkpoint_name):
-    """从 checkpoint 名称中提取数字部分"""
     match = re.search(r'checkpoint-(\d+)', checkpoint_name)
     if match:
         return int(match.group(1))
-    return -1  # 如果不是有效的 checkpoint 名称
+    return -1
 
 def calculate_reward_average(reward_data):
-    """计算 reward bench 的平均分（原始分数）"""
     scores = []
     for field in ["Factuality", "Focus", "Math", "Precise IF", "Safety", "Ties"]:
         if field in reward_data:
             value = reward_data[field]
             if 0 <= value <= 1:
-                scores.append(value * 100)  # 转换为百分比形式
+                scores.append(value * 100)
             else:
-                scores.append(value)  # 已为百分比形式
+                scores.append(value)
     return sum(scores) / len(scores) if scores else 0
 
 def convert_rm_to_percentage(rm_data):
-    """将 rm bench 的结果转换为百分比形式"""
     converted = {}
     for key, value in rm_data.items():
         if isinstance(value, (int, float)) and key != "model":
@@ -39,15 +36,12 @@ def convert_rm_to_percentage(rm_data):
     return converted
 
 def aggregate_results(base_dir):
-    """汇总所有 checkpoint 的结果并计算整体得分"""
-    # 获取所有 checkpoint 目录并按数字排序
     checkpoint_dirs = []
     for item in os.listdir(base_dir):
         item_path = os.path.join(base_dir, item)
         if os.path.isdir(item_path) and "checkpoint-" in item:
             checkpoint_dirs.append(item_path)
     
-    # 按 checkpoint 数字排序
     checkpoint_dirs.sort(key=lambda x: extract_checkpoint_number(os.path.basename(x)))
     
     all_results = []
@@ -55,14 +49,14 @@ def aggregate_results(base_dir):
     
     for checkpoint_dir in checkpoint_dirs:
         checkpoint_name = os.path.basename(checkpoint_dir)
-        print(f"处理 checkpoint: {checkpoint_name}")
+        print(f"processing checkpoint: {checkpoint_name}")
         
         result = {"checkpoint": checkpoint_name}
         scores = []
         benchmark_data = {}
         
         try:
-            # Judge Bench 结果
+            # Judge Bench 
             judge_path = os.path.join(checkpoint_dir, "judge_bench.json")
             if os.path.exists(judge_path):
                 with open(judge_path) as f:
@@ -77,7 +71,7 @@ def aggregate_results(base_dir):
                     scores.append(judge_data.get("Overall", 0))
                     benchmark_data["judge"] = judge_data
             
-            # Reward Bench v2 结果
+            # Reward Bench v2
             reward_path = os.path.join(checkpoint_dir, "reward_benchv2.json")
             if os.path.exists(reward_path):
                 with open(reward_path) as f:
@@ -86,7 +80,6 @@ def aggregate_results(base_dir):
                     result["reward_average"] = reward_avg
                     scores.append(reward_avg)
                     
-                    # 单独字段
                     result.update({
                         "reward_Factuality": reward_data.get("Factuality", 0) * 100,
                         "reward_Focus": reward_data.get("Focus", 0) * 100,
@@ -97,7 +90,7 @@ def aggregate_results(base_dir):
                     })
                     benchmark_data["reward"] = reward_data
             
-            # RM Bench 结果
+            # RM Bench
             rm_path = os.path.join(checkpoint_dir, "rm_bench.json")
             if os.path.exists(rm_path):
                 with open(rm_path) as f:
@@ -106,7 +99,6 @@ def aggregate_results(base_dir):
                     result["rm_total_avg_acc"] = rm_converted.get("total_avg_acc", 0)
                     scores.append(rm_converted.get("total_avg_acc", 0))
                     
-                    # 单独字段
                     result.update({
                         "rm_chat": rm_converted.get("chat", 0),
                         "rm_code": rm_converted.get("code", 0),
@@ -118,7 +110,6 @@ def aggregate_results(base_dir):
                     })
                     benchmark_data["rm"] = rm_data
             
-            # 计算三个 benchmark 的平均分
             if scores:
                 result["benchmark_average"] = sum(scores) / len(scores)
 
@@ -137,28 +128,26 @@ def aggregate_results(base_dir):
             checkpoint_count += 1
             
         except Exception as e:
-            print(f"处理 {checkpoint_name} 时出错: {str(e)}")
+            print(f"error on {checkpoint_name}: {str(e)}")
     
-    print(f"成功处理 {checkpoint_count} 个 checkpoint")
+    print(f"{checkpoint_count} checkpoints done")
     return all_results
 
 def save_results_as_csv(results, base_dir):
-    """将结果保存为 CSV 文件（完全匹配图片中的表格结构）"""
     if not results:
         return None
     
-    # 定义完全匹配图片的列顺序
     fixed_order = [
         "benchmark_average", 
 
-        # Judge Bench 部分
+        # Judge Bench
         "judge_Overall",
         "judge_Knowledge",
         "judge_Reasoning",
         "judge_Math",
         "judge_Coding",
         
-        # RM Bench 部分
+        # RM Bench
         "rm_total_avg_acc",  # Overall
         "rm_chat",            # Chat
         "rm_math",            # Math
@@ -168,7 +157,7 @@ def save_results_as_csv(results, base_dir):
         "rm_normal_acc", 
         "rm_easy_acc",
         
-        # Reward Bench V2 部分
+        # Reward Bench V2
         "reward_average",     # Overall
         "reward_Factuality",  # Factuality
         "reward_Precise IF",  # Precise IF
@@ -178,29 +167,24 @@ def save_results_as_csv(results, base_dir):
         "reward_Ties",        # Ties
     ]
     
-    # 在最前面添加 checkpoint 列
     final_order = ["checkpoint"] + fixed_order
     
-    # 创建 CSV 文件
     output_path = os.path.join(base_dir, "benchmark_results.csv")
     with open(output_path, "w", newline="") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=final_order)
         writer.writeheader()
         
-        # 只写入最终顺序中存在的字段
         for result in results:
             filtered_result = {k: v for k, v in result.items() if k in final_order}
             writer.writerow(filtered_result)
     
-    print(f"结果已保存到: {output_path}")
+    print(f"save to: {output_path}")
     return output_path
 
 def calculate_and_add_overall_average(results, output_path):
-    """计算所有 checkpoint 的平均值并添加到 CSV"""
     if not results:
         return {}
     
-    # 定义与 CSV 完全一致的字段顺序（包括 benchmark_average）
     fixed_order = [
         "benchmark_average", 
         "judge_Overall",
@@ -225,30 +209,24 @@ def calculate_and_add_overall_average(results, output_path):
         "reward_Ties"
     ]
     
-    # 获取 CSV 中的所有列名（除了checkpoint）
     with open(output_path, "r") as csvfile:
         reader = csv.DictReader(csvfile)
         header_fields = reader.fieldnames
         
-    # 确保顺序与 CSV 保持一致
     columns_to_avg = [col for col in header_fields if col != "checkpoint"]
     
-    # 计算总体平均值（仅基于有效的checkpoint行）
     overall_avg = {}
     for column in columns_to_avg:
-        # 收集所有有效值（跳过空值或无效行）
         valid_values = []
         for result in results:
             if column in result and not pd.isna(result.get(column)):
                 valid_values.append(result[column])
         
-        # 计算平均值（如果存在有效值）
         if valid_values:
             overall_avg[column] = sum(valid_values) / len(valid_values)
         else:
             overall_avg[column] = 0
     
-    # 准备要添加的行（确保顺序一致）
     avg_row = {"checkpoint": "Overall Average"}
     for column in columns_to_avg:
         avg_row[column] = overall_avg.get(column, "")
@@ -259,39 +237,31 @@ def calculate_and_add_overall_average(results, output_path):
         writer.writerow({})  # 添加空行
         writer.writerow(avg_row)
     
-    print(f"已添加正确的总体平均值到: {output_path}")
+    print(f"Save to: {output_path}")
     return overall_avg
 
 def visualize_comparison(results, overall_avg, base_dir):
-    """生成可视化分析图表（英文版）"""
     try:
         import matplotlib.pyplot as plt
         import pandas as pd
         import numpy as np
         
-        # 创建 DataFrame
         df = pd.DataFrame(results)
         
-        # 提取 checkpoint 数字用于排序
         df['checkpoint_num'] = df['checkpoint'].apply(extract_checkpoint_number)
         df = df.sort_values('checkpoint_num')
         
-        # 设置输出目录
         output_dir = os.path.join(base_dir, "analysis_results")
         os.makedirs(output_dir, exist_ok=True)
         
-        # 1. Judge Bench 详细指标分析（小分和总分）
+        # 1. Judge Bench
         plt.figure(figsize=(15, 8))
-        # 获取所有 Judge Bench 相关列（排除可能的benchmark_average列）
         judge_cols = [col for col in df.columns if col.startswith("judge_")]
 
         if judge_cols:
-            # 绘图
             ax = plt.subplot(111)
             for col in judge_cols:
-                # 获取列名中的标签部分（去掉前缀）
                 label = col.replace("judge_", "")
-                # 绘制折线图
                 ax.plot(df["checkpoint_num"], df[col], 
                         marker='o', markersize=5, linewidth=2, label=label)
             
@@ -304,19 +274,16 @@ def visualize_comparison(results, overall_avg, base_dir):
             plt.savefig(os.path.join(output_dir, "1_judge_bench_metrics.png"))
             plt.close()
         
-        # 2. Reward Bench V2 详细指标分析
+        # 2. Reward Bench V2 
         plt.figure(figsize=(15, 8))
         reward_cols = [col for col in df.columns if col.startswith("reward_") and col != "reward_average"]
         if reward_cols:
-            # 绘制总分
             ax = plt.subplot(111)
             if "reward_average" in df.columns:
                 ax.plot(df["checkpoint_num"], df["reward_average"], "o-", 
                         markersize=6, linewidth=3, color="black", label="Average (Overall)")
             
-            # 绘制各小分
             for col in reward_cols:
-                # 获取列名中的标签部分（去掉前缀）
                 label = col.replace("reward_", "")
                 ax.plot(df["checkpoint_num"], df[col], 
                         marker='o', markersize=4, linewidth=1.5, label=label)
@@ -330,19 +297,16 @@ def visualize_comparison(results, overall_avg, base_dir):
             plt.savefig(os.path.join(output_dir, "2_reward_bench_metrics.png"))
             plt.close()
         
-        # 3. RM Bench 详细指标分析
+        # 3. RM Bench
         plt.figure(figsize=(15, 8))
         rm_cols = [col for col in df.columns if col.startswith("rm_") and col != "rm_total_avg_acc"]
         if rm_cols:
-            # 绘制总分
             ax = plt.subplot(111)
             if "rm_total_avg_acc" in df.columns:
                 ax.plot(df["checkpoint_num"], df["rm_total_avg_acc"], "o-", 
                         markersize=6, linewidth=3, color="black", label="Total Avg (Overall)")
             
-            # 绘制各小分
             for col in rm_cols:
-                # 获取列名中的标签部分（去掉前缀）
                 label = col.replace("rm_", "")
                 ax.plot(df["checkpoint_num"], df[col], 
                         marker='o', markersize=4, linewidth=1.5, label=label)
@@ -356,9 +320,7 @@ def visualize_comparison(results, overall_avg, base_dir):
             plt.savefig(os.path.join(output_dir, "3_rm_bench_metrics.png"))
             plt.close()
         
-        # 4. 3个Benchmarks的总分比较
         plt.figure(figsize=(12, 6))
-        # 检查三个关键指标列是否存在
         benchmarks_available = False
         labels = []
         lines = []
@@ -397,45 +359,40 @@ def visualize_comparison(results, overall_avg, base_dir):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='汇总所有 checkpoint 的评估结果')
+    parser = argparse.ArgumentParser(description='read results of all checkpoints')
     parser.add_argument('--base_dir', type=str, required=True,
-                        help='包含所有 checkpoint 目录的基础目录')
+                        help='base dir to save all checkpoints')
     
     args = parser.parse_args()
     
     if not os.path.isdir(args.base_dir):
-        print(f"错误: 目录不存在 - {args.base_dir}")
+        print(f"{args.base_dir} do not exist")
         exit(1)
     
-    # 汇总结果
     results = aggregate_results(args.base_dir)
     
     if not results:
-        print("没有找到任何评估结果")
+        print("Not json result to read")
         return
     
-    # 保存为 CSV
     csv_path = save_results_as_csv(results, args.base_dir)
     
-    # 计算并添加总体平均值
     overall_avg = calculate_and_add_overall_average(results, csv_path)
     
-    # 生成可视化图表
     visualize_comparison(results, overall_avg, args.base_dir)
     
-    # 打印摘要
-    print("\n汇总分析完成:")
-    print(f"- 处理 checkpoint 数量: {len(results)}")
+    print("\nFinished:")
+    print(f"- Number of checkpoint: {len(results)}")
     if "benchmark_average" in overall_avg:
-        print(f"- 所有 benchmark 平均分: {overall_avg['benchmark_average']:.2f}%")
+        print(f"- Benchmarks Average: {overall_avg['benchmark_average']:.2f}%")
     else:
-        print("警告: 未找到 benchmark_average 值")
+        print("error: No benchmark_average in result")
     
     # 找到最佳 checkpoint
     if results and "benchmark_average" in results[0]:
         best_checkpoint = max(results, key=lambda x: x["benchmark_average"])
-        print(f"\n🎯 最佳表现 checkpoint: {best_checkpoint['checkpoint']}")
-        print(f"- 综合评分: {best_checkpoint['benchmark_average']:.2f}%")
+        print(f"\n🎯 Best checkpoint: {best_checkpoint['checkpoint']}")
+        print(f"- Average: {best_checkpoint['benchmark_average']:.2f}%")
         if "judge_Overall" in best_checkpoint:
             print(f"- Judge Bench: {best_checkpoint['judge_Overall']:.2f}%")
         if "reward_average" in best_checkpoint:

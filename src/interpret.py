@@ -9,7 +9,7 @@ from openai import OpenAI, AzureOpenAI
 
 # ------------------- util ----------------------------------------------------
 def extract_explanation_and_score(text: str):
-    """从回复里抓 Explanation: …  和 Score: N （-2~2）"""
+    """extract Explanation & Score"""
     exp = re.search(r'Explanation:\s*(.*?)(?:\n|$)', text, re.S).group(1).strip() \
           if re.search(r'Explanation:', text) else None
     m   = re.search(r'Score:\s*([-\-]?\d+)', text)
@@ -92,7 +92,7 @@ def main():
     latent_context_map = ctx_json["latent_context_map"]
 
     selected_latents = []
-    with open(latents_path, "r") as f:
+    with open(args.latents_path, "r") as f:
         selected_latents = [line.strip() for line in f]
     assert len(selected_latents)!=0 and isinstance(selected_latents[0], str)
 
