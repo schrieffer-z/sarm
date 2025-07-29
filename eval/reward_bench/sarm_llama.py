@@ -1,3 +1,4 @@
+import json
 import torch
 import torch.nn as nn
 
@@ -648,6 +649,166 @@ class LlamaBaselineFrozen(LlamaPreTrainedModel):
         loss = None
         if labels is not None:
             loss = self.loss_function(logits=logits, labels=labels, pooled_logits=pooled_logits, config=self.config)
+
+        if not return_dict:
+            output = (pooled_logits,) + transformer_outputs[1:]
+            return ((loss,) + output) if loss is not None else output
+
+        return SequenceClassifierOutputWithPast(
+            loss=loss,
+            logits=pooled_logits,
+            past_key_values=transformer_outputs.past_key_values,
+            hidden_states=transformer_outputs.hidden_states,
+            attentions=transformer_outputs.attentions,
+        )
+
+
+class LlamaSARM4Steering(LlamaPreTrainedModel):
+    def __init__(
+            # Shuyi (sae init 传参)
+            self, config, sae_hidden_state_source_layer, sae_latent_size, sae_k, steering_path,
+            sae_use_sequence_level=False,
+            sarm_use_topk=False, 
+            sarm_train_mode=1
+    ):
+        super().__init__(config)
+
+        with open(steering_path, encoding="utf-8") as f:
+            self.steering = {int(k): v for k, v in json.load(f).items()}
+        
+        self.num_labels = config.num_labels
+        self.model = MyLlamaModel(config, hidden_state_source_layer=sae_hidden_state_source_layer)
+        
+        # Shuyi (SAE init)
+        self.sae_use_sequence_level = sae_use_sequence_level
+        self.sarm_use_topk = sarm_use_topk
+        self.sarm_train_mode = sarm_train_mode
+
+        self.score = nn.Linear(sae_latent_size, self.num_labels, bias=False)
+        self.sae = TopkSAE(hidden_size=self.model.config.hidden_size, latent_size=sae_latent_size, k=sae_k)
+
+        if self.sarm_train_mode==0:
+            for p in self.model.parameters():
+                p.requires_grad_(False)
+        if self.sarm_train_mode==0 or self.sarm_train_mode==1:
+            for p in self.sae.parameters():
+                p.requires_grad_(False)
+
+        # Initialize weights and apply final processing
+        self.post_init()
+
+    def get_input_embeddings(self):
+        return self.model.embed_tokens
+
+    def set_input_embeddings(self, value):
+        self.model.embed_tokens = value
+
+    def forward(
+        self,
+        input_ids: Optional[torch.LongTensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        # Shuyi (aggregate latent)
+        assistant_masks: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_values: Optional[Union[Cache, List[torch.FloatTensor]]] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        labels: Optional[torch.LongTensor] = None,
+        use_cache: Optional[bool] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+    ) -> Union[Tuple, SequenceClassifierOutputWithPast]:
+        r"""
+        labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
+            Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
+            config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
+            `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
+        """
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+        transformer_outputs = self.model(
+            input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+        hidden_states = transformer_outputs[0]
+
+
+        # Shuyi
+        h, _, _ = pre_process(hidden_states)
+        sae_features = self.sae.pre_acts(h)
+        if self.sarm_use_topk:
+            sae_features = self.sae.get_latents(sae_features)
+        if self.steering is not None:
+            for latent in self.steering.keys():
+                action, val = self.steering[latent]
+                if action == '+':
+                    sae_features[:, :, latent] += torch.ones_like(sae_features[:, :, latent])*val
+                elif action == '*':
+                    sae_features[:, :, latent] += sae_features[:, :, latent]*(val-1)
+                else:
+                    raise ValueError(f'unsupported action {action}')
+
+        logits = self.score(sae_features)
+
+        if input_ids is not None:
+            batch_size = input_ids.shape[0]
+        else:
+            batch_size = inputs_embeds.shape[0]
+
+        if self.config.pad_token_id is None and batch_size != 1:
+            raise ValueError("Cannot handle batch sizes > 1 if no padding token is defined.")
+        if self.config.pad_token_id is None:
+            sequence_lengths = -1
+        else:
+            if input_ids is not None:
+                # if no pad token found, use modulo instead of reverse indexing for ONNX compatibility
+                sequence_lengths = torch.eq(input_ids, self.config.pad_token_id).int().argmax(-1) - 1
+                sequence_lengths = sequence_lengths % input_ids.shape[-1]
+                sequence_lengths = sequence_lengths.to(logits.device)
+            else:
+                sequence_lengths = -1
+        # Shuyi (查看last_token是否为<|eot_id|>)
+        assert ((input_ids[torch.arange(batch_size, device=logits.device), sequence_lengths]!=torch.ones(batch_size, device=logits.device)*128009).sum() == 0).item()
+        
+        # Shuyi (联合训练)
+        rec_loss = None
+        if self.sarm_train_mode==2:
+            if not self.sarm_use_topk:
+                sae_features_t = self.sae.get_latents(sae_features)
+            h_hat = self.sae.decode(sae_features_t)
+            rec_loss = Masked_Normalized_MSE_loss(h, h_hat, assistant_masks)
+        elif self.sarm_train_mode==3 and not self.sae_use_sequence_level:
+            h_d = h.detach()
+            _, h_hat = self.sae(h_d)
+            rec_loss = Masked_Normalized_MSE_loss(h_d, h_hat, assistant_masks)        
+        elif self.sarm_train_mode==3 and self.sae_use_sequence_level:
+            h_d = h.detach()
+            sequence_lengths_t = sequence_lengths.view(-1,1,1)
+            last_token_mask = torch.zeros([h_d.shape[0] ,1 ,h_d.shape[1]], device=h_d.device)
+            last_token_mask.scatter_(-1, sequence_lengths_t, torch.ones_like(sequence_lengths_t, dtype=last_token_mask.dtype))
+            
+            # h_d -> (bs, seq_len, d), last_token_mask -> (bs, 1, seq_len)
+            h_d = torch.matmul(last_token_mask.to(h_d.dtype), h_d) 
+            
+            _, h_hat = self.sae(h_d)
+            rec_loss = Normalized_MSE_loss(h_d, h_hat)       
+
+
+        pooled_logits = logits[torch.arange(batch_size, device=logits.device), sequence_lengths]
+
+
+        loss = None
+        if labels is not None:
+            loss = self.loss_function(logits=logits, labels=labels, pooled_logits=pooled_logits, config=self.config)
+        if rec_loss is not None:
+            loss = rec_loss
 
         if not return_dict:
             output = (pooled_logits,) + transformer_outputs[1:]

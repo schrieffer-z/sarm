@@ -39,7 +39,7 @@ from rewardbench import (
     reroll_and_score_dataset,
     save_to_hub,
 )
-from sarm_llama import LlamaSARM
+from sarm_llama import LlamaSARM, LlamaSARM4Steering
 
 # get token from HF_TOKEN env variable, but if it doesn't exist pass none
 HF_TOKEN = os.getenv("HF_TOKEN", None)
@@ -84,6 +84,9 @@ def get_args():
     Parse arguments strings model and chat_template
     """
     parser = argparse.ArgumentParser()
+    # Steering
+    parser.add_argument("--steering_path", required=True, help="JSON file: {latent_id:[action,val], …}")
+
     parser.add_argument("--model", type=str, required=True, help="path to model")
     parser.add_argument("--revision", type=str, default=None, help="revision of model to load")
     parser.add_argument(
@@ -195,7 +198,7 @@ def main():
 
     custom_dialogue = config["custom_dialogue"]
     model_type = config["model_type"]  # todo will be needed to add PairRM and SteamSHP
-    model_builder = LlamaSARM.from_pretrained
+    model_builder = LlamaSARM4Steering.from_pretrained
     pipeline_builder = config["pipeline_builder"]
     torch_dtype = config.get("torch_dtype", None)
 
@@ -278,7 +281,7 @@ def main():
         model = model_builder(args.model, revision=args.revision, **model_kwargs, trust_remote_code=trust_remote_code)
     else:
         sae_kwargs = parse_sarm_param(args.model)
-        model = model_builder(args.model, **model_kwargs, **sae_kwargs, trust_remote_code=trust_remote_code)
+        model = model_builder(args.model, steering_path=args.steering_path, **model_kwargs, **sae_kwargs, trust_remote_code=trust_remote_code)
 
     reward_pipe = pipeline_builder(
         "text-classification",
