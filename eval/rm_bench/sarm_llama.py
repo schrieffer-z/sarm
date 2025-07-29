@@ -383,7 +383,6 @@ class LlamaSARM(LlamaPreTrainedModel):
         hidden_states = transformer_outputs[0]
 
 
-        # Shuyi
         h, _, _ = pre_process(hidden_states)
         sae_features = self.sae.pre_acts(h)
         if self.sarm_use_topk:
@@ -409,7 +408,7 @@ class LlamaSARM(LlamaPreTrainedModel):
                 sequence_lengths = sequence_lengths.to(logits.device)
             else:
                 sequence_lengths = -1
-        # ensure Shuyi last_token is <|eot_id|>
+        # ensure last_token is <|eot_id|>
         assert ((input_ids[torch.arange(batch_size, device=logits.device), sequence_lengths]!=torch.ones(batch_size, device=logits.device)*128009).sum() == 0).item()
         
         # joint training

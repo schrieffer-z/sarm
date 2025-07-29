@@ -312,7 +312,6 @@ class MyLlamaModel(LlamaPreTrainedModel):
 
 class LlamaSARM(LlamaPreTrainedModel):
     def __init__(
-            # Shuyi (sae init 传参)
             self, config, sae_hidden_state_source_layer, sae_latent_size, sae_k, 
             sae_use_sequence_level=False,
             sarm_use_topk=False, 
@@ -322,7 +321,6 @@ class LlamaSARM(LlamaPreTrainedModel):
         self.num_labels = config.num_labels
         self.model = MyLlamaModel(config, hidden_state_source_layer=sae_hidden_state_source_layer)
         
-        # Shuyi (SAE init)
         self.sae_use_sequence_level = sae_use_sequence_level
         self.sarm_use_topk = sarm_use_topk
         self.sarm_train_mode = sarm_train_mode
@@ -352,7 +350,6 @@ class LlamaSARM(LlamaPreTrainedModel):
         self,
         input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
-        # Shuyi (aggregate latent)
         assistant_masks: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[Union[Cache, List[torch.FloatTensor]]] = None,
@@ -385,7 +382,6 @@ class LlamaSARM(LlamaPreTrainedModel):
         hidden_states = transformer_outputs[0]
 
 
-        # Shuyi
         h, _, _ = pre_process(hidden_states)
         sae_features = self.sae.pre_acts(h)
         if self.sarm_use_topk:
@@ -411,10 +407,10 @@ class LlamaSARM(LlamaPreTrainedModel):
                 sequence_lengths = sequence_lengths.to(logits.device)
             else:
                 sequence_lengths = -1
-        # Shuyi (查看last_token是否为<|eot_id|>)
+        # ensure last_token is <|eot_id|>
         assert ((input_ids[torch.arange(batch_size, device=logits.device), sequence_lengths]!=torch.ones(batch_size, device=logits.device)*128009).sum() == 0).item()
         
-        # Shuyi (联合训练)
+        # joint training
         rec_loss = None
         if self.sarm_train_mode==2:
             if not self.sarm_use_topk:
@@ -466,14 +462,12 @@ class LlamaSARM(LlamaPreTrainedModel):
 #==========================================================================================================================================================================
 class LlamaBaseline(LlamaPreTrainedModel):
     def __init__(
-            # Shuyi (sae init 传参)
             self, config, sae_hidden_state_source_layer, sae_latent_size
     ):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.model = MyLlamaModel(config, hidden_state_source_layer=sae_hidden_state_source_layer)
         
-        # Shuyi (SAE init)
         self.untrained_sae_encoder = nn.Linear(self.model.config.hidden_size, sae_latent_size)
         self.score = nn.Linear(sae_latent_size, self.num_labels, bias=False)
         
@@ -563,14 +557,12 @@ class LlamaBaseline(LlamaPreTrainedModel):
 
 class LlamaBaselineFrozen(LlamaPreTrainedModel):
     def __init__(
-            # Shuyi (sae init 传参)
             self, config, sae_hidden_state_source_layer, sae_latent_size
     ):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.model = MyLlamaModel(config, hidden_state_source_layer=sae_hidden_state_source_layer)
         
-        # Shuyi (SAE init)
         self.untrained_sae_encoder = nn.Linear(self.model.config.hidden_size, sae_latent_size)
         self.score = nn.Linear(sae_latent_size, self.num_labels, bias=False)
         
