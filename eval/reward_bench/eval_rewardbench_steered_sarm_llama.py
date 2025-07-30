@@ -127,8 +127,9 @@ def get_args():
 
 def main():
     args = get_args()
-
-    if os.path.exists(os.path.join(args.model, 'reward_benchv2.json')):
+    x = os.path.basename(args.steering_path)
+    steer_path = os.path.join(args.model, x[:x.rfind('.')]+'reward_benchv2.json')
+    if os.path.exists(steer_path):
         return
     
     # ------- Registering Olmo config for Olmo 2 reward models -------
@@ -402,7 +403,7 @@ def main():
     results_grouped["model"] = model_name[model_name.rfind('/')+1:]
     results_grouped.pop('model_type')
     results_grouped.pop('chat_template')
-    with open(os.path.join(args.model, 'reward_benchv2.json'), 'w') as f:
+    with open(steer_path, 'w') as f:
         json.dump(results_grouped, f, indent=4, ensure_ascii=False)
 
 
