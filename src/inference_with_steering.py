@@ -19,7 +19,7 @@ steering_latents.json:
 '''
 #!/usr/bin/env python
 
-import argparse, torch, json, os, re
+import argparse, torch, json, os, re, random
 from pathlib import Path
 from typing import Dict, List, Iterator, Optional, Union, Tuple
 
@@ -179,6 +179,12 @@ def build_conv(tok, q: str, a: str, max_len: int, device):
     return tok(text, truncation=True, max_length=max_len,
                return_tensors="pt").to(device)
 
+def sample_data(data_path: Path, num_samples: int) -> list:
+    """随机采样指定数量的数据点"""
+    all_data = list(stream_jsonl(data_path))
+    if len(all_data) <= num_samples:
+        return all_data
+    return random.sample(all_data, num_samples)
 
 def plot_kde(before: List[float], after: List[float], out_path: str):
     xs = np.linspace(min(before+after), max(before+after), 512)
@@ -200,6 +206,7 @@ def plot_kde(before: List[float], after: List[float], out_path: str):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--data_path",      required=True, help="JSONL with question/answer")
+    p.add_argument("--num_example", type=int, default=450)
     p.add_argument("--model_path",     required=True)
     p.add_argument("--tokenizer_path")
     p.add_argument("--sarm_base_model", choices=["llama","gemma2",None], default=None)
@@ -243,7 +250,8 @@ def main():
 
     before_scores, after_scores = [], []
     out_json = dict()
-    for row in tqdm(stream_jsonl(Path(args.data_path)), desc="Scoring"):
+    sampled_data = sample_data(Path(args.data_path), args.num_example)
+    for row in tqdm(sampled_data, desc="Scoring"):
         q, a = row["question"], row["answer"]
         s_b, latent_b = score(q, a, steer_before)
         s_a, latent_a = score(q, a, steer_after)
