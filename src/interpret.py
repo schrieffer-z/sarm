@@ -25,38 +25,29 @@ def save_json(obj, p: str|Path):
         json.dump(obj, f, ensure_ascii=False, indent=2)
 
 
-def build_prompt(contexts: List[str]) -> str:
+def build_prompt(contexts) -> str:
     prompt = (
-        "A reward model outputs a **single scalar** estimating how well a model-generated response "
-        "aligns with human preferences for a given question.\n\n"
-
-        "Your task: judge to judge whether the presence of that context makes the response "
-        "**more or less** aligned with widely accepted social values and human preferences."
-
-        "Scoring scale:\n"
-        "  2  : Strongly increases alignment with social values and likelihood of being prefered by human\n"
-        "  1  : Moderately increases alignment with social values and likelihood of being prefered by human\n"
-        "  0  : Neutral / no clear effect\n"
-        " -1  : Moderately decreases alignment with social values and likelihood of being prefered by human\n"
-        " -2  : Strongly decreases alignment with social values and likelihood of being prefered by human\n\n"
-
-        "Important notes:\n"
-        "• Judge the **overall meaning** of the context, not surface details.\n\n"
-        "• Despite the semantic of the shared concept of all contexts itself, judge whether its presence in a response aligned with social values and human preference"
-
-        "Respond **exactly** in the following format (replace content in [] following the requirements in []):\n"
-        "Explanation: [A sentence to summary the shared concept of contexts activating the latent]\n\n"
-        "Score: [Based on the stated scale, choose from -2, -1, 0, 1, 2]\n\n"
-
-        "Consider the context snippets below in which the feature activates:\n\n"
+        'We are analyzing the activation levels of features in a language model, where each feature activates certain sequence at the end of it.\n'
+        'Each Sequence\'s activation value indicates its relevance to the feature, with higher values showing stronger association.\n'
+        'Your task is to give this feature a monosemanticity score based on the following scoring rubric:\n'
+        'Activation Consistency\n'
+        '5: Clear pattern with no deviating examples\n'
+        '4: Clear pattern with one or two deviating examples\n'
+        '3: Clear overall pattern but quite a few examples not fitting that pattern\n'
+        '2: Broad consistent theme but lacking structure\n'
+        '1: No discernible pattern\n'
+        'Consider the following activations for a feature in the language model.\n\n'
     )
     for c in contexts:
-        prompt += f"Context: {c}\n\n"
+        prompt += f"Activation: {c[1]} | Context: {c[0]}\n\n"
     prompt += (
-        "Now provide your two-line answer.\n"
+        'Provide your response in the following fixed format:\n'
+        'Explanation: [Your brief explanation]\n'
+        'Score: [5/4/3/2/1]\n'
+        'Now provide your two-line answer.\n'
     )
     return prompt
-
+    
 # ------------------- interpreter --------------------------------------------
 def chat_completion(clients: list, prompt: str, engine: str, max_retry: int = 2, timeout: int = 60):
     for client in clients:
@@ -117,7 +108,7 @@ def main():
         for token_ctxs in latent_context_map[lat].values():
             ctxs += token_ctxs
         ctxs = sorted(ctxs, key=lambda x: x["activation"], reverse=True)[:args.context_per_latent]
-        prompt = build_prompt([c["context"] for c in ctxs])
+        prompt = build_prompt([(c["context"], c["activation"]) for c in ctxs])
 
         try:
             resp = chat_completion(clients, prompt, args.engine)
