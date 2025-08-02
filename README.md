@@ -1,5 +1,10 @@
-<div align="center">
-  <h1>SARM: Promoting Interpretability via Sparse Autoencoder</h1>
-</p>
-  <img width="1280" alt="Github RewardBench Logo" src="./figs/framework-v4.pdf" style="margin-left:'auto' margin-right:'auto' display:'block' "/>
-</div>
+# SARM:
+
+# Environment
+We provide an environment.yml including the python package versions we used in our experiments. For optimal reproducibility, we recommend using the same package versions. However, please note that results may still vary due to differences in hardware configurations and CUDA versions, etc.
+
+# Training Scripts
+
+```shell
+bash recipes/sarm_train.sh
+```

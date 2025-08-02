@@ -1,4 +1,3 @@
-export HF_HOME=/data/zhangsy/.cache
 export NCCL_P2P_DISABLE=1 
 export NCCL_IB_DISABLE=1 
 
