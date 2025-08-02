@@ -11,17 +11,11 @@ import psutil
 
 
 TASK_PATHS = {
-    "judge_bench": "eval/judge_bench",
     "reward_bench": "eval/reward_bench",
     "rm_bench": "eval/rm_bench"
 }
 
 TASK_COMMANDS = {
-    "judge_bench": [
-        "python", "judge_bench.py",
-        "--judge_name", "reward_model",
-        "--pairs", "data/dataset=judgebench,response_model=gpt-4o-2024-05-13.jsonl"
-    ],
     "reward_bench": [
         "python", "eval_rewardbench_sarm_llama.py",
         "--batch_size=1",
@@ -37,7 +31,6 @@ TASK_COMMANDS = {
 }
 
 TASK_TIMEOUTS = {
-    "judge_bench": 1800,  
     "reward_bench": 1800, 
     "rm_bench": 1800
 }
@@ -53,16 +46,12 @@ def run_task(gpu, ckpt_path, task_name, base_dir):
     
     cmd = TASK_COMMANDS[task_name].copy()
     
-    if task_name == "judge_bench":
-        cmd.append("--judge_model")
-    else:
-        cmd.append("--model")
+    cmd.append("--model")
     cmd.append(ckpt_path)
     
-    if task_name in ["reward_bench", "rm_bench"]:
-        tokenizer_path = os.path.dirname(ckpt_path)
-        cmd.append("--tokenizer")
-        cmd.append(tokenizer_path)
+    tokenizer_path = os.path.dirname(ckpt_path)
+    cmd.append("--tokenizer")
+    cmd.append(tokenizer_path)
     
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = gpu
@@ -172,9 +161,9 @@ if __name__ == "__main__":
     parser.add_argument('--base_dir', required=True,
                         help='base dir of all checkpoints')
     parser.add_argument('--devices', required=True,
-                        help='GPU ddevices ID list("0,1,2")')
-    parser.add_argument('--tasks', nargs='+', type=str, default=['judge_bench', 'reward_bench', 'rm_bench'],
-                    help='111 stands for all benchmark')
+                        help='GPU ddevices ID list("0,1")')
+    parser.add_argument('--tasks', nargs='+', type=str, default=['reward_bench', 'rm_bench'],
+                    help='11 stands for all benchmark')
     args = parser.parse_args()
 
     TASK_PATHS = {task:TASK_PATHS[task] for task in args.tasks}

@@ -1,2 +1,1 @@
-python src/run_eval.py --base_dir ... --devices "0,1,2" --tasks "judge_bench" "reward_bench" "rm_bench"
-python src/read_all.py --base_dir ...
+python src/run_eval.py --base_dir ... --devices "0,1" --tasks "reward_bench" "rm_bench"
