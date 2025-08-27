@@ -8,7 +8,7 @@
 
   + **Model**: [schrieffer/SARM-4B](https://huggingface.co/schrieffer/SARM-4B)
 
-      + Finetuned from model: [Llama-3.1-8B](https://huggingface.co/meta-llama/Llama-3.1-8B)
+      + Finetuned from model: [Llama-3.1-8B-Instruct](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct)
 
   + **Code Repository:** [https://github.com/schrieffer-z/sarm](https://github.com/schrieffer-z/sarm)
 
