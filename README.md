@@ -1,4 +1,4 @@
-# SARM-4B: Interpretable Reward Model via Sparse Autoencoder
+# SARM: Interpretable Reward Model via Sparse Autoencoder
 ![](assets/framework-v4.png)
 
   + **Authors** (\* indicates equal contribution)
