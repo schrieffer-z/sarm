@@ -23,9 +23,7 @@ from transformers.optimization import get_scheduler
 from transformers.trainer import OptimizerNames
 
 # local
-from sarm_llama import LlamaBaseline, LlamaSARM
-from sarm_gemma2 import Gemma2Baseline, Gemma2SARM
-from sae import *
+from utils import get_last_assistant_masks
 
 # Define and parse arguments.
 @dataclass
@@ -60,23 +58,15 @@ class ScriptArguments:
             "help": "loss = bt_loss + lambda_rec_loss"
         }
     )
-    sarm_use_topk: Optional[bool] = field(
+    sarm_use_activation: Optional[bool] = field(
         default=False,
         metadata={"help": "whether or not to use top k in rm"}
     )
-    sarm_base_model: Optional[str] = field(
-        default=None,
-        metadata={"help": "RM Backbone type(from which arch's hidden states sae is trained). "}
-    )
+
     # Baseline 
     sarm_use_baseline: Optional[bool] = field(
         default=False,
         metadata={"help": "whether or not to use baseine"}
-    )
-    # Resume Flag
-    resume: Optional[bool] = field(
-        default=False,
-        metadata={"help": "whether or not to resume from certain ckpt"}
     )
 
     local_rank: Optional[int] = field(
@@ -164,7 +154,7 @@ script_args.model_name = os.path.normpath(script_args.model_name)
 
 # Load the value-head model and tokenizer.
 tokenizer_name = script_args.model_name
-tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, use_fast = False)
+tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 
 # Adjusted according to the base model
 # Need to do this for the models that don't have an official pad token.
@@ -244,127 +234,16 @@ training_args = TrainingArguments(
 )
 
 
-def parse_sae_params(filename):
-    """
-    从SAE模型文件名中解析出sae_latent_size和sae_hidden_state_source_layer
-    """
-    if script_args.sarm_use_baseline: 
-        pattern = r'Latent(\d+)_Layer(\d+)'
-        match = re.search(pattern, filename)
-        return {
-            "sae_latent_size": int(match.group(1)),
-            "sae_hidden_state_source_layer": int(match.group(2)),
-        }
-    pattern = r'_Latent(\d+)_Layer(\d+)_K(\d+)_'
-    match = re.search(pattern, filename)
-    
-    if not match:
-        raise ValueError(f"Invalid SAE filename format: {filename}")
-    
-    ret = {
-        "sae_latent_size": int(match.group(1)),
-        "sae_hidden_state_source_layer": int(match.group(2)),
-        "sae_k": int(match.group(3)),
-        "sae_use_sequence_level": script_args.sae_use_sequence_level,
-        'sarm_use_topk': script_args.sarm_use_topk,
-        'sarm_train_mode': script_args.sarm_train_mode
-    }
-    if script_args.sarm_use_baseline: 
-        ret.pop('sae_k')
-        ret.pop('sae_use_sequence_level')
-        ret.pop('sarm_use_topk')
-        ret.pop('sarm_train_mode')
-    return ret
+model = AutoModelForSequenceClassification.from_pretrained(
+    script_args.model_name, 
+    num_labels=1, 
+    torch_dtype=torch.bfloat16, 
+    attn_implementation="flash_attention_2", 
+    trust_remote_code=True, 
+)
 
-
-def merge_safetensor():
-    if not os.path.exists(script_args.model_name+'-SARM'):
-        import shutil
-        shutil.copytree(script_args.model_name, script_args.model_name+'-SARM')
-
-    weight_map = None
-    safetensors_name = None
-    weight_map_path = os.path.join(script_args.model_name, 'model.safetensors.index.json')
-    if os.path.exists(weight_map_path):
-        with open(weight_map_path, "r", encoding="utf-8") as f:
-            weight_map = json.load(f)
-    
-    weights1=dict()
-    for fname in os.listdir(script_args.model_name):
-        if '.safetensors' in fname:
-            safetensors_name = fname
-            weights1 = load_file(os.path.join(script_args.model_name, fname))
-            break
-    
-    weights2 = dict(torch.load(script_args.sae_path, weights_only=True, map_location=torch.device('cpu')))
-    x = dict()
-    for k, v in weights2.items():
-        x.update({
-            'sae.' + k : 
-            v.cpu().to(torch.bfloat16).contiguous()
-        })
-    x.update({
-        'score.weight': 
-        torch.zeros([1,weights2['decoder.weight'].shape[1]]).to(torch.bfloat16)
-    })
-    weights1.update(x)
-    
-
-    target_path = script_args.model_name+"-SARM"
-    # fix model.safetensors.index.json
-    if weight_map is not None:
-        for param_name in x.keys():
-            weight_map["weight_map"].update({
-                param_name: safetensors_name
-            })
-        weight_map["weight_map"].update({
-                param_name: safetensors_name
-            })
-        with open(os.path.join(target_path, 'model.safetensors.index.json'), "w", encoding="ascii") as f:
-            json.dump(weight_map, f, indent=2)
-
-    save_file(
-        weights1, 
-        os.path.join(target_path, safetensors_name),
-        metadata={"format": "pt"}
-    )
-        
-
-
-if script_args.sarm_use_baseline:
-    sae_kwargs = parse_sae_params(script_args.sae_path)
-    if script_args.sarm_base_model=='gemma2':
-        model = Gemma2Baseline.from_pretrained(
-            script_args.model_name, num_labels=1, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2", **sae_kwargs
-        )
-    elif script_args.sarm_base_model=='llama':
-        model = LlamaBaseline.from_pretrained(
-            script_args.model_name, num_labels=1, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2", **sae_kwargs
-        )
-    else:
-        raise ValueError(f"Invalid base model type: {script_args.sarm_base_model}")
-elif script_args.sae_path is not None:
-    sae_kwargs = parse_sae_params(script_args.sae_path)
-    if not script_args.resume:
-        merge_safetensor()
-        loaded_model_path = script_args.model_name + "-SARM"
-    else:
-        loaded_model_path = script_args.model_name
-    if script_args.sarm_base_model=='gemma2':
-        model = Gemma2SARM.from_pretrained(
-            loaded_model_path, num_labels=1, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2", **sae_kwargs
-        )
-    elif script_args.sarm_base_model=='llama':
-        model = LlamaSARM.from_pretrained(
-            loaded_model_path, num_labels=1, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2", **sae_kwargs
-        )
-    else:
-        raise ValueError(f"Invalid base model type: {script_args.sarm_base_model}")
-else:
-    model = AutoModelForSequenceClassification.from_pretrained(
-        script_args.model_name, num_labels=1, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2",
-    )
-
+if script_args.sarm_train_mode==0:
+    model.
 
 
 model.config.use_cache = not script_args.gradient_checkpointing

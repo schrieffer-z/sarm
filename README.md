@@ -17,6 +17,16 @@
 # Environment
 We provide an environment.yml including the python package versions we used in our experiments. For optimal reproducibility, we recommend using the same package versions. However, please note that results may still vary due to differences in hardware configurations and CUDA versions, etc.
 
+# SARM training pipeline
+1. sae sequence-level pretraining
+
+    We specify SAE hyperparameters (latent size, k of topk, layer to insert SAE) here and train SAE.
+    Then we get a SARM with a backbone initialized with original LLM (all decoder layers after the layer to insert SAE are dicarded), a SAE encoder loaded with weight we just trained and a value head initialized with zero.
+
+2. SARM training
+
+    We then train the SARM we got in the previous step with preference dataset.
+
 # Training Scripts
 
 ```shell

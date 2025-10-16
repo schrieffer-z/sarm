@@ -17,31 +17,125 @@ from transformers.models.llama.modeling_llama import (
 )
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 
-# Local
-from sae import TopkSAE, pre_process, Normalized_MSE_loss, Masked_Normalized_MSE_loss
-
 
 logger = logging.get_logger(__name__)
+
+#==========================================================================================================================================================================
+#==========================================================================================================================================================================
+def get_last_assistant_masks(input_ids):
+    i=len(input_ids)-4
+    while i >= 0:
+        if input_ids[i:i+4] == [128006, 78191, 128007, 271]:
+            pos = i + 4
+            break
+        i -= 1
+    
+    assistant_masks = []
+    for i in range(len(input_ids)):
+        if i < pos:
+            assistant_masks.append(0)
+        else:
+            assistant_masks.append(1)
+
+    assert input_ids[-1]==128009
+    return assistant_masks
+
+def Normalized_MSE_loss(x: torch.Tensor, x_hat: torch.Tensor) -> torch.Tensor:
+    return (((x_hat - x) ** 2).mean(dim=-1) / (x**2).mean(dim=-1)).mean()
+
+def Masked_Normalized_MSE_loss(x: torch.Tensor, x_hat: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    mask = mask.to(torch.bfloat16)
+    loss = ((x_hat - x) ** 2).mean(dim=-1) / (x**2).mean(dim=-1)
+    assert loss.shape==mask.shape
+    seq_loss = (mask * loss).sum(-1) / (mask.sum(-1))
+    return seq_loss.mean()
+
+def pre_process(hidden_stats: torch.Tensor, eps: float = 1e-6) -> tuple:
+    '''
+    :param hidden_stats: Hidden states (shape: [batch, max_length, hidden_size]).
+    :param eps: Epsilon value for numerical stability.
+    '''
+    mean = hidden_stats.mean(dim=-1, keepdim=True)
+    std = hidden_stats.std(dim=-1, keepdim=True)
+    x = (hidden_stats - mean) / (std + eps)
+    return x, mean, std
+
+class TopkSAE(nn.Module):
+    '''
+    TopK Sparse Autoencoder Implements:
+    z = TopK(encoder(x - pre_bias) + latent_bias)
+    x_hat = decoder(z) + pre_bias
+    '''
+    def __init__(
+        self, hidden_size: int, latent_size: int, k: int
+    ) -> None:
+        '''
+        :param hidden_size: Dimensionality of the input residual stream activation.
+        :param latent_size: Number of latent units.
+        :param k: Number of activated latents.
+        '''
+
+        # 'sae_pre_bias', 'sae_latent_bias', 'sae_encoder.weight', 'sae_decoder.weight'
+
+        assert k <= latent_size, f'k should be less than or equal to {latent_size}'
+        super(TopkSAE, self).__init__()
+        self.pre_bias = nn.Parameter(torch.zeros(hidden_size))
+        self.latent_bias = nn.Parameter(torch.zeros(latent_size))
+        self.encoder = nn.Linear(hidden_size, latent_size, bias=False)
+        self.decoder = nn.Linear(latent_size, hidden_size, bias=False)
+
+        self.k = k
+        self.latent_size = latent_size
+        self.hidden_size = hidden_size
+
+        # "tied" init
+        # self.decoder.weight.data = self.encoder.weight.data.T.clone()
+    
+    def pre_acts(self, x: torch.Tensor) -> torch.Tensor:
+        x = x - self.pre_bias
+        return self.encoder(x) + self.latent_bias
+    
+    def get_latents(self, pre_acts: torch.Tensor) -> torch.Tensor:
+        topk = torch.topk(pre_acts, self.k, dim=-1)
+        latents = torch.zeros_like(pre_acts)
+        latents.scatter_(-1, topk.indices, topk.values)
+        return latents
+
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        pre_acts = self.pre_acts(x)
+        latents = self.get_latents(pre_acts)
+        return latents
+
+    def decode(self, latents: torch.Tensor) -> torch.Tensor:
+        return self.decoder(latents) + self.pre_bias
+    
+    def forward(self, x: torch.Tensor) -> tuple:
+        '''
+        :param x: Input residual stream activation (shape: [batch_size, max_length, hidden_size]).
+        :return:  latents (shape: [batch_size, max_length, latent_size]).
+                  x_hat (shape: [batch_size, max_length, hidden_size]).
+        '''
+        latents = self.encode(x)
+        x_hat = self.decode(latents)
+        return latents, x_hat
+
+
 #==========================================================================================================================================================================
 #==========================================================================================================================================================================
 class MyLlamaModel(LlamaPreTrainedModel):
     def __init__(
             self, 
-            config: LlamaConfig, 
-            hidden_state_source_layer: int=None
-    ):
-        if hidden_state_source_layer==None:
-            # default 1/2
-            hidden_state_source_layer = int(config.num_hidden_layers/2)
-            
+            config: LlamaConfig,
+    ):  
+        sae_source_layer = config.sarm_param.get("sae_source_layer", config.num_hidden_layers/2)
+    
         super().__init__(config)
-        self.hidden_state_source_layer = hidden_state_source_layer
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
         self.layers = nn.ModuleList(
-            [LlamaDecoderLayer(config, layer_idx) for layer_idx in range(hidden_state_source_layer)]
+            [LlamaDecoderLayer(config, layer_idx) for layer_idx in range(sae_source_layer)]
         )
         self.norm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
@@ -306,34 +400,22 @@ class MyLlamaModel(LlamaPreTrainedModel):
 
 
 #==========================================================================================================================================================================
-#============================================               从LlamaForSequenceClassification为原型，修改为SAE4RM的形式            =============================================
 #==========================================================================================================================================================================
 
 
 class LlamaSARM(LlamaPreTrainedModel):
     def __init__(
-            self, config, sae_hidden_state_source_layer, sae_latent_size, sae_k, 
-            sae_use_sequence_level=False,
-            sarm_use_topk=False, 
-            sarm_train_mode=1
+            self, config
     ):
         super().__init__(config)
         self.num_labels = config.num_labels
-        self.model = MyLlamaModel(config, hidden_state_source_layer=sae_hidden_state_source_layer)
+        self.model = MyLlamaModel(config)
         
-        self.sae_use_sequence_level = sae_use_sequence_level
-        self.sarm_use_topk = sarm_use_topk
-        self.sarm_train_mode = sarm_train_mode
-
-        self.score = nn.Linear(sae_latent_size, self.num_labels, bias=False)
-        self.sae = TopkSAE(hidden_size=self.model.config.hidden_size, latent_size=sae_latent_size, k=sae_k)
-
-        if self.sarm_train_mode==0:
-            for p in self.model.parameters():
-                p.requires_grad_(False)
-        if self.sarm_train_mode==0 or self.sarm_train_mode==1:
-            for p in self.sae.parameters():
-                p.requires_grad_(False)
+        self.score = nn.Linear(config.sarm_param['sae_latent_size'], self.num_labels, bias=False)
+        self.sae = TopkSAE(hidden_size=self.model.config.hidden_size, latent_size=config.sarm_param['sae_latent_size'], k=config.sarm_param['sae_k'])
+        
+        self.sae_use_sequence_level = config.sarm_param['sae_use_sequence_level']
+        self.sarm_use_activation = config.sarm_param['sarm_use_activation']
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -350,7 +432,6 @@ class LlamaSARM(LlamaPreTrainedModel):
         self,
         input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
-        assistant_masks: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[Union[Cache, List[torch.FloatTensor]]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
@@ -384,7 +465,7 @@ class LlamaSARM(LlamaPreTrainedModel):
 
         h, _, _ = pre_process(hidden_states)
         sae_features = self.sae.pre_acts(h)
-        if self.sarm_use_topk:
+        if self.sarm_activation:
             sae_features = self.sae.get_latents(sae_features)
 
 
@@ -410,227 +491,8 @@ class LlamaSARM(LlamaPreTrainedModel):
         # ensure last_token is <|eot_id|>
         assert ((input_ids[torch.arange(batch_size, device=logits.device), sequence_lengths]!=torch.ones(batch_size, device=logits.device)*128009).sum() == 0).item()
         
-        # joint training
-        rec_loss = None
-        if self.sarm_train_mode==2:
-            if not self.sarm_use_topk:
-                sae_features_t = self.sae.get_latents(sae_features)
-            h_hat = self.sae.decode(sae_features_t)
-            rec_loss = Masked_Normalized_MSE_loss(h, h_hat, assistant_masks)
-        elif self.sarm_train_mode==3 and not self.sae_use_sequence_level:
-            h_d = h.detach()
-            _, h_hat = self.sae(h_d)
-            rec_loss = Masked_Normalized_MSE_loss(h_d, h_hat, assistant_masks)        
-        elif self.sarm_train_mode==3 and self.sae_use_sequence_level:
-            h_d = h.detach()
-            sequence_lengths_t = sequence_lengths.view(-1,1,1)
-            last_token_mask = torch.zeros([h_d.shape[0] ,1 ,h_d.shape[1]], device=h_d.device)
-            last_token_mask.scatter_(-1, sequence_lengths_t, torch.ones_like(sequence_lengths_t, dtype=last_token_mask.dtype))
-            
-            # h_d -> (bs, seq_len, d), last_token_mask -> (bs, 1, seq_len)
-            h_d = torch.matmul(last_token_mask.to(h_d.dtype), h_d) 
-            
-            _, h_hat = self.sae(h_d)
-            rec_loss = Normalized_MSE_loss(h_d, h_hat)       
-
-
         pooled_logits = logits[torch.arange(batch_size, device=logits.device), sequence_lengths]
 
-
-        loss = None
-        if labels is not None:
-            loss = self.loss_function(logits=logits, labels=labels, pooled_logits=pooled_logits, config=self.config)
-        if rec_loss is not None:
-            loss = rec_loss
-
-        if not return_dict:
-            output = (pooled_logits,) + transformer_outputs[1:]
-            return ((loss,) + output) if loss is not None else output
-
-        return SequenceClassifierOutputWithPast(
-            loss=loss,
-            logits=pooled_logits,
-            past_key_values=transformer_outputs.past_key_values,
-            hidden_states=transformer_outputs.hidden_states,
-            attentions=transformer_outputs.attentions,
-        )
-
-
-
-#==========================================================================================================================================================================
-#=================================               从LlamaForSequenceClassification为原型，可以放在任意层的score head(两层MLP)            ========================================
-#==========================================================================================================================================================================
-class LlamaBaseline(LlamaPreTrainedModel):
-    def __init__(
-            self, config, sae_hidden_state_source_layer, sae_latent_size
-    ):
-        super().__init__(config)
-        self.num_labels = config.num_labels
-        self.model = MyLlamaModel(config, hidden_state_source_layer=sae_hidden_state_source_layer)
-        
-        self.untrained_sae_encoder = nn.Linear(self.model.config.hidden_size, sae_latent_size)
-        self.score = nn.Linear(sae_latent_size, self.num_labels, bias=False)
-        
-        # Initialize weights and apply final processing
-        self.post_init()
- 
-
-    def get_input_embeddings(self):
-        return self.model.embed_tokens
-
-    def set_input_embeddings(self, value):
-        self.model.embed_tokens = value
-
-    
-    def forward(
-        self,
-        input_ids: Optional[torch.LongTensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        assistant_masks: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Union[Cache, List[torch.FloatTensor]]] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ) -> Union[Tuple, SequenceClassifierOutputWithPast]:
-        r"""
-        labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
-            Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
-            config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
-            `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
-        """
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
-        transformer_outputs = self.model(
-            input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_values=past_key_values,
-            inputs_embeds=inputs_embeds,
-            use_cache=use_cache,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-        )
-        hidden_states = transformer_outputs[0]
-        logits = self.score(self.untrained_sae_encoder(hidden_states))
-
-        if input_ids is not None:
-            batch_size = input_ids.shape[0]
-        else:
-            batch_size = inputs_embeds.shape[0]
-
-        if self.config.pad_token_id is None and batch_size != 1:
-            raise ValueError("Cannot handle batch sizes > 1 if no padding token is defined.")
-        if self.config.pad_token_id is None:
-            sequence_lengths = -1
-        else:
-            if input_ids is not None:
-                # if no pad token found, use modulo instead of reverse indexing for ONNX compatibility
-                sequence_lengths = torch.eq(input_ids, self.config.pad_token_id).int().argmax(-1) - 1
-                sequence_lengths = sequence_lengths % input_ids.shape[-1]
-                sequence_lengths = sequence_lengths.to(logits.device)
-            else:
-                sequence_lengths = -1
-
-        pooled_logits = logits[torch.arange(batch_size, device=logits.device), sequence_lengths]
-
-        loss = None
-        if labels is not None:
-            loss = self.loss_function(logits=logits, labels=labels, pooled_logits=pooled_logits, config=self.config)
-
-        if not return_dict:
-            output = (pooled_logits,) + transformer_outputs[1:]
-            return ((loss,) + output) if loss is not None else output
-
-        return SequenceClassifierOutputWithPast(
-            loss=loss,
-            logits=pooled_logits,
-            past_key_values=transformer_outputs.past_key_values,
-            hidden_states=transformer_outputs.hidden_states,
-            attentions=transformer_outputs.attentions,
-        )
-    
-
-class LlamaBaselineFrozen(LlamaPreTrainedModel):
-    def __init__(
-            self, config, sae_hidden_state_source_layer, sae_latent_size
-    ):
-        super().__init__(config)
-        self.num_labels = config.num_labels
-        self.model = MyLlamaModel(config, hidden_state_source_layer=sae_hidden_state_source_layer)
-        
-        self.untrained_sae_encoder = nn.Linear(self.model.config.hidden_size, sae_latent_size)
-        self.score = nn.Linear(sae_latent_size, self.num_labels, bias=False)
-        
-        # Initialize weights and apply final processing
-        self.post_init()
- 
-
-    def get_input_embeddings(self):
-        return self.model.embed_tokens
-
-    def set_input_embeddings(self, value):
-        self.model.embed_tokens = value
-
-    
-    def forward(
-        self,
-        input_ids: Optional[torch.LongTensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Union[Cache, List[torch.FloatTensor]]] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ) -> Union[Tuple, SequenceClassifierOutputWithPast]:
-        r"""
-        labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
-            Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
-            config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
-            `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
-        """
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
-        transformer_outputs = self.model(
-            input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_values=past_key_values,
-            inputs_embeds=inputs_embeds,
-            use_cache=use_cache,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-        )
-        hidden_states = transformer_outputs[0]
-        logits = self.score(self.untrained_sae_encoder(hidden_states))
-
-        if input_ids is not None:
-            batch_size = input_ids.shape[0]
-        else:
-            batch_size = inputs_embeds.shape[0]
-
-        if self.config.pad_token_id is None and batch_size != 1:
-            raise ValueError("Cannot handle batch sizes > 1 if no padding token is defined.")
-        if self.config.pad_token_id is None:
-            sequence_lengths = -1
-        else:
-            if input_ids is not None:
-                # if no pad token found, use modulo instead of reverse indexing for ONNX compatibility
-                sequence_lengths = torch.eq(input_ids, self.config.pad_token_id).int().argmax(-1) - 1
-                sequence_lengths = sequence_lengths % input_ids.shape[-1]
-                sequence_lengths = sequence_lengths.to(logits.device)
-            else:
-                sequence_lengths = -1
-
-        pooled_logits = logits[torch.arange(batch_size, device=logits.device), sequence_lengths]
 
         loss = None
         if labels is not None:
