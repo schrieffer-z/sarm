@@ -242,8 +242,20 @@ model = AutoModelForSequenceClassification.from_pretrained(
     trust_remote_code=True, 
 )
 
-if script_args.sarm_train_mode==0:
-    model.
+sarm_rec_lambda=script_args.sarm_rec_lambda
+sarm_train_mode=script_args.sarm_train_mode
+if sarm_train_mode==0:
+    # Only value head weight will be updated
+    for p in model.parameters():
+        p.requires_grad_(False)
+    
+    for p in model.sae.parameters():
+        p.requires_grad_(False)
+
+if sarm_train_mode==1:
+    # SAE weight will not be updated
+    for p in model.sae.parameters():
+        p.requires_grad_(False)
 
 
 model.config.use_cache = not script_args.gradient_checkpointing
@@ -328,9 +340,12 @@ def compute_metrics(eval_pred):
         pos_predictions_scores > neg_predictions_scores) / len(pos_predictions_scores)
     return result
 
-sarm_rec_lambda=script_args.sarm_rec_lambda
-sarm_train_mode=script_args.sarm_train_mode
 class RewardTrainer(Trainer):
+    def __init__(self, *args, sarm_train_mode=1 , sarm_rec_lambda=0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.sarm_train_mode = sarm_train_mode
+        self.sarm_rec_lambda = sarm_rec_lambda
+
     def compute_loss(self, model, inputs, return_outputs=False):
         output = model(
             input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"], assistant_masks=inputs["assistant_masks"]
@@ -342,9 +357,9 @@ class RewardTrainer(Trainer):
         rewards_j = rewards[jidx]
         rewards_k = rewards[kidx]
         loss = -nn.functional.logsigmoid(rewards_j - rewards_k).mean()
-        global sarm_train_mode, sarm_rec_lambda
-        if sarm_train_mode==2 or sarm_train_mode==3:
-            loss += sarm_rec_lambda * output['loss']
+        if self.sarm_train_mode in [2, 3]:
+            # we modify sarm inference before, the key 'loss' is defined as reconstruction loss for updating sae
+            loss += self.sarm_rec_lambda * output['loss']
 
         if return_outputs:
             return loss, {"rewards_j": rewards_j, "rewards_k": rewards_k}
@@ -361,6 +376,8 @@ trainer = RewardTrainer(
         tokenizer=tokenizer, 
         max_length=script_args.max_length
     ),
+    sarm_train_mode=sarm_train_mode,
+    sarm_rec_lambda=sarm_rec_lambda,
 )
 
 print('*'*50)

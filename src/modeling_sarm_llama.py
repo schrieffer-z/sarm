@@ -432,6 +432,7 @@ class LlamaSARM(LlamaPreTrainedModel):
         self,
         input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
+        assistant_masks: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[Union[Cache, List[torch.FloatTensor]]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
@@ -465,7 +466,7 @@ class LlamaSARM(LlamaPreTrainedModel):
 
         h, _, _ = pre_process(hidden_states)
         sae_features = self.sae.pre_acts(h)
-        if self.sarm_activation:
+        if self.sarm_use_topk:
             sae_features = self.sae.get_latents(sae_features)
 
 
@@ -491,12 +492,41 @@ class LlamaSARM(LlamaPreTrainedModel):
         # ensure last_token is <|eot_id|>
         assert ((input_ids[torch.arange(batch_size, device=logits.device), sequence_lengths]!=torch.ones(batch_size, device=logits.device)*128009).sum() == 0).item()
         
+        # joint training
+        rec_loss = None
+        if self.sarm_train_mode==2:
+            if not self.sarm_use_topk:
+                sae_features_t = self.sae.get_latents(sae_features)
+            h_hat = self.sae.decode(sae_features_t)
+            rec_loss = Masked_Normalized_MSE_loss(h, h_hat, assistant_masks)
+        elif self.sarm_train_mode==3 and not self.sae_use_sequence_level:
+            h_d = h.detach()
+            _, h_hat = self.sae(h_d)
+            rec_loss = Masked_Normalized_MSE_loss(h_d, h_hat, assistant_masks)        
+        elif self.sarm_train_mode==3 and self.sae_use_sequence_level:
+            h_d = h.detach()
+            sequence_lengths_t = sequence_lengths.view(-1,1,1)
+            last_token_mask = torch.zeros([h_d.shape[0] ,1 ,h_d.shape[1]], device=h_d.device)
+            last_token_mask.scatter_(-1, sequence_lengths_t, torch.ones_like(sequence_lengths_t, dtype=last_token_mask.dtype))
+            
+            # h_d -> (bs, seq_len, d), last_token_mask -> (bs, 1, seq_len)
+            h_d = torch.matmul(last_token_mask.to(h_d.dtype), h_d) 
+            
+            _, h_hat = self.sae(h_d)
+            rec_loss = Normalized_MSE_loss(h_d, h_hat)       
+
+
         pooled_logits = logits[torch.arange(batch_size, device=logits.device), sequence_lengths]
 
 
         loss = None
         if labels is not None:
             loss = self.loss_function(logits=logits, labels=labels, pooled_logits=pooled_logits, config=self.config)
+        
+        # since label loss will not be used in RM training.
+        # we use loss to return reconstrcution loss.
+        if rec_loss is not None:
+            loss = rec_loss
 
         if not return_dict:
             output = (pooled_logits,) + transformer_outputs[1:]
