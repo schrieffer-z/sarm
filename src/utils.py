@@ -1,5 +1,4 @@
 import torch
-from torch import nn
 
 def get_last_assistant_masks(input_ids):
     i=len(input_ids)-4
