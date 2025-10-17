@@ -413,8 +413,10 @@ class LlamaSARM(LlamaPreTrainedModel):
         self.score = nn.Linear(config.sarm_param['sae_latent_size'], self.num_labels, bias=False)
         self.sae = TopkSAE(hidden_size=self.model.config.hidden_size, latent_size=config.sarm_param['sae_latent_size'], k=config.sarm_param['sae_k'])
         
-        self.sae_use_sequence_level = config.sarm_param['sae_use_sequence_level']
         self.sarm_use_activation = config.sarm_param['sarm_use_activation']
+        # 2 param below are only used for computing reconstruction loss in joint training.
+        self.sae_use_sequence_level = config.sarm_param['sae_use_sequence_level']
+        self.sarm_train_mode = config.sarm_param['sarm_train_mode']
 
         # Initialize weights and apply final processing
         self.post_init()
