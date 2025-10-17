@@ -1,33 +1,25 @@
-export NCCL_P2P_DISABLE=1 
-export NCCL_IB_DISABLE=1 
-
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 config_name=deepspeed_zero3_4gpu.yaml
 
-# 2:1e-6
-learning_rate=2e-6
+# gbs:lr = 2:1e-6 (1*4:2e-6)
 per_device_train_batch_size=1
+learning_rate=2e-6
 num_train_epochs=3
 
 # base model path & output path
-sarm_base_model=llama
-model_name=
-sae_title=Llama-3.1-8B-Instruct_sequence_Latent65536_Layer16_K192_1B
-sae_path=.../$sae_title.pt
-output_path=.../$sae_title-SARM-woTopK-LastToken-1
+model_name=Schrieffer/Llama-SARM-4B-PostSAEPretrain
+output_path=models/Llama-SARM-4B
 train_set_path=
 
 # sarm config
-sae_use_sequence_level=false
-sarm_use_baseline=false
-sarm_use_topk=false
+sae_use_sequence_level=true
+sarm_use_activation=true
 # sarm_train_mode=3: sae will be updated by preference loss and reconstruction loss
 # sarm_train_mode=1: sae won't not be updated
-sarm_train_mode=3
-sarm_rec_lambda=1
+sarm_train_mode=1
+sarm_rec_lambda=0
 
 
-echo using sae parameters from $sae_path
 echo run reward modeling from base model: $model_name
 echo ckpt will be saved in $output_path
 
@@ -43,10 +35,7 @@ accelerate launch \
     --num_train_epochs $num_train_epochs \
     --per_device_train_batch_size $per_device_train_batch_size \
     --train_set_path $train_set_path \
-    --sae_path $sae_path \
-    --sarm_base_model $sarm_base_model \
     --sae_use_sequence_level $sae_use_sequence_level \
-    --sarm_use_baseline $sarm_use_baseline \
-    --sarm_use_topk $sarm_use_topk \
+    --sarm_use_activation $sarm_use_activation \
     --sarm_train_mode $sarm_train_mode \
     --sarm_rec_lambda $sarm_rec_lambda

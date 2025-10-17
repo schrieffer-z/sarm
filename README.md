@@ -21,11 +21,12 @@ We provide an environment.yml including the python package versions we used in o
 1. sae sequence-level pretraining
 
     We specify SAE hyperparameters (latent size, k of topk, layer to insert SAE) here and train SAE.
-    Then we get a SARM with a backbone initialized with original LLM (all decoder layers after the layer to insert SAE are dicarded), a SAE encoder loaded with weight we just trained and a value head initialized with zero.
+    Then we get a SARM with a backbone initialized with original LLM (all decoder layers after the layer to insert SAE are dicarded), a SAE encoder loaded with weights we just trained and a value head initialized with zero.
 
 2. SARM training
 
     We then train the SARM we got in the previous step with preference dataset.
+    Note that we release sae weight by [Schrieffer/Llama-SARM-4B-PostSAEPretrain](https://huggingface.co/Schrieffer/Llama-SARM-4B-PostSAEPretrain), which is a SARM with a LLM backbone initialized by Llama-3.1-8B-Instruct up to 16-th decoder layers, a SAE pretrained in last step and a value head initialized with 0.
 
 # Training Scripts
 

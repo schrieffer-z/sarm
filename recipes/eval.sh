@@ -1,1 +1,0 @@
-python src/run_eval.py --base_dir ... --devices "0,1" --tasks "reward_bench" "rm_bench"
