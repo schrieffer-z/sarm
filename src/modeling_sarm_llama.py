@@ -491,7 +491,7 @@ class LlamaSARM(LlamaPreTrainedModel):
         # ensure last_token is <|eot_id|>
         assert ((input_ids[torch.arange(batch_size, device=logits.device), sequence_lengths]!=torch.ones(batch_size, device=logits.device)*128009).sum() == 0).item()
         
-        # joint training
+        # joint training (Here we compute reconstruction loss)
         rec_loss = None
         if self.sarm_train_mode==2:
             if not self.sarm_use_activation:
