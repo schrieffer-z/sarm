@@ -16,7 +16,7 @@ from transformers.models.llama.modeling_llama import (
     LlamaPreTrainedModel
 )
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
-
+from utils import Masked_Normalized_MSE_loss, Normalized_MSE_loss, pre_process
 
 logger = logging.get_logger(__name__)
 
@@ -429,7 +429,7 @@ class LlamaSARM(LlamaPreTrainedModel):
 
         h, _, _ = pre_process(hidden_states)
         sae_features = self.sae.pre_acts(h)
-        if self.sarm_use_topk:
+        if self.sarm_use_activation:
             sae_features = self.sae.get_latents(sae_features)
 
 
@@ -458,7 +458,7 @@ class LlamaSARM(LlamaPreTrainedModel):
         # joint training
         rec_loss = None
         if self.sarm_train_mode==2:
-            if not self.sarm_use_topk:
+            if not self.sarm_use_activation:
                 sae_features_t = self.sae.get_latents(sae_features)
             h_hat = self.sae.decode(sae_features_t)
             rec_loss = Masked_Normalized_MSE_loss(h, h_hat, assistant_masks)

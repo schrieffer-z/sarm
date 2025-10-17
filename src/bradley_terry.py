@@ -63,12 +63,6 @@ class ScriptArguments:
         metadata={"help": "whether or not to use top k in rm"}
     )
 
-    # Baseline 
-    sarm_use_baseline: Optional[bool] = field(
-        default=False,
-        metadata={"help": "whether or not to use baseine"}
-    )
-
     local_rank: Optional[int] = field(
         default=-1, metadata={"help": "Used for multi-gpu"})
     deepspeed: Optional[str] = field(
