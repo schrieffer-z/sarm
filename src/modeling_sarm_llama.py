@@ -415,6 +415,7 @@ class LlamaSARM(LlamaPreTrainedModel):
         
         self.sarm_use_activation = config.sarm_param['sarm_use_activation']
         # 2 param below are only used for computing reconstruction loss in joint training.
+        # we froeeze sae weight in proposed method to avoid adding even more hyperparameters, but joint training with suitable hyperparameter might be better.
         self.sae_use_sequence_level = config.sarm_param['sae_use_sequence_level']
         self.sarm_train_mode = config.sarm_param['sarm_train_mode']
 
