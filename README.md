@@ -34,6 +34,12 @@ bash recipes/sarm_train.sh
 ```
 
 # Evaluate Scripts
+After cloning [Reward Bench](https://github.com/allenai/reward-bench), you can simply use this to evaluate SARM:
+Note that adding trust_remote_code is necessary.
 ```shell
-bash recipes/eval.sh
+python scripts/run_v2.py \
+  --model Schrieffer/Llama-SARM-4B \
+  --batch_size 8 \
+  --torch_dtype bfloat16 \
+  --trust_remote_code
 ```
