@@ -22,8 +22,6 @@ from transformers.utils import PaddingStrategy, is_sagemaker_mp_enabled
 from transformers.optimization import get_scheduler
 from transformers.trainer import OptimizerNames
 
-# local
-from utils import get_last_assistant_masks
 
 # Define and parse arguments.
 @dataclass
@@ -167,6 +165,23 @@ output_name = script_args.output_path
 
 
 def build_dataset(tokenizer, train_path, eval_path):
+    def get_last_assistant_masks(input_ids):
+        i=len(input_ids)-4
+        while i >= 0:
+            if input_ids[i:i+4] == [128006, 78191, 128007, 271]:
+                pos = i + 4
+                break
+            i -= 1
+        
+        assistant_masks = []
+        for i in range(len(input_ids)):
+            if i < pos:
+                assistant_masks.append(0)
+            else:
+                assistant_masks.append(1)
+
+        assert input_ids[-1]==128009
+        return assistant_masks
 
     def tokenize(sample):
         sample['positive'] = tokenizer.apply_chat_template(sample['chosen'], tokenize=False, add_generation_prompt=False)
