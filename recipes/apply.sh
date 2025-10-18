@@ -3,7 +3,7 @@ idxes=(0 1 2 3 4 5 6 7)
 
 for idx in "${idxes[@]}"
 do
-  python src/apply.py \
+  python src/sae_get_contexts.py \
     --model_path ... \
     --tokenizer_path ... \
     --dataset_name skyworkpreference \

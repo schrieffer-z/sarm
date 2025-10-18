@@ -1,4 +1,4 @@
-python src/interpret.py  \
+python src/sae_interpret.py  \
     --model_path ... \
     --context_path ???.json \
     --api_base ... \
